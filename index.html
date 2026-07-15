@@ -2659,6 +2659,7 @@ className:"p-3 text-right space-x-2"},React.createElement("button",{onClick:()=>
 }))),React.createElement("div",{className:"p-6 space-y-5"},React.createElement("div",{className:"grid grid-cols-1 md:grid-cols-2 gap-5"},React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 block"},"Service Code *"),React.createElement("div",{className:"flex bg-slate-50 dark:bg-[#1c1c27] border border-slate-300 dark:border-slate-700 rounded-lg overflow-hidden focus-within:border-blue-500 transition-colors"},React.createElement("input",{required:!0,value:h.code,onChange:t=>A({...h,code:t.target.value}),className:"w-full p-2.5 bg-transparent text-sm text-slate-800 dark:text-white outline-none font-mono"}),React.createElement("button",{type:"button",onClick:T,className:"px-4 bg-slate-200 dark:bg-[#252536] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors border-l border-slate-300 dark:border-slate-700"},React.createElement("i",{className:"fas fa-magic"})))),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 block"},"Service Name *"),React.createElement("input",{required:!0,value:h.name,onChange:t=>A({...h,name:t.target.value}),className:"w-full p-2.5 bg-slate-50 dark:bg-[#1c1c27] border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-white outline-none focus:border-blue-500 transition-colors"}))),React.createElement("div",{
 className:"grid grid-cols-1 md:grid-cols-2 gap-5"},React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 block"},"Category *"),React.createElement("input",{required:!0,value:h.category,onChange:t=>A({...h,category:t.target.value}),className:"w-full p-2.5 bg-slate-50 dark:bg-[#1c1c27] border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-white outline-none focus:border-blue-500 transition-colors"})),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 block"},"Base Price (\u20B1) *"),React.createElement("input",{required:!0,type:"number",step:"0.01",value:h.price,onChange:t=>A({...h,price:t.target.value}),className:"w-full p-2.5 bg-slate-50 dark:bg-[#1c1c27] border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-white outline-none focus:border-blue-500 transition-colors"}))),React.createElement("div",{className:"grid grid-cols-1 md:grid-cols-2 gap-5"},React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 block"},"Type"),React.createElement("input",{value:h.type,onChange:t=>A({...h,type:t.target.value}),
 className:"w-full p-2.5 bg-slate-50 dark:bg-[#1c1c27] border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-white outline-none focus:border-blue-500 transition-colors"})),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 block"},"Description"),React.createElement("textarea",{rows:"1",value:h.description,onChange:t=>A({...h,description:t.target.value}),className:"w-full p-2.5 bg-slate-50 dark:bg-[#1c1c27] border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-white outline-none focus:border-blue-500 transition-colors resize-none"})))),React.createElement("div",{className:"p-5 border-t border-slate-200 dark:border-slate-800 rounded-b-xl flex justify-end gap-3 transition-colors duration-300"},React.createElement("button",{type:"button",onClick:()=>k(!1),className:"px-6 py-2.5 text-sm font-bold bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"},"Cancel"),React.createElement("button",{type:"submit",className:"px-8 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold rounded-lg shadow-md transition-all hover:-translate-y-0.5"},React.createElement("i",{className:"fas fa-save mr-2"}),"Save")))))}
+
 function IMMS_CRM__asDate(v) {
   try {
     if (!v) return null;
@@ -2671,53 +2672,176 @@ function IMMS_CRM__asDate(v) {
   }
 }
 
-function IMMS_CRM__formatValue(v) {
-  if (v === void 0 || v === null || v === "") return "â€”";
-  if (typeof v === "boolean") return v ? "Yes" : "No";
-  const d = IMMS_CRM__asDate(v);
+function IMMS_CRM__cleanText(v) {
+  if (v === void 0 || v === null) return "";
+  let s = String(v);
+  return s
+    .replace(/Ã‚/g, "")
+    .replace(/Ã¢â‚¬â„¢|Ã¢â‚¬Ëœ/g, "'")
+    .replace(/Ã¢â‚¬Å“|Ã¢â‚¬\x9d|Ã¢â‚¬Â/g, '"')
+    .replace(/Ã¢â‚¬â€œ|Ã¢â‚¬â€|Ã¢â‚¬"|Ã¢â‚¬/g, "â€”")
+    .replace(/Ã¢â‚¬Â¢/g, "â€¢")
+    .replace(/ÃƒÂ±/g, "Ã±")
+    .replace(/Ãƒâ€˜/g, "Ã‘")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function IMMS_CRM__isPlaceholderValue(v) {
+  if (v === void 0 || v === null || v === "") return true;
+  const s = IMMS_CRM__cleanText(v);
+  if (!s) return true;
+  return /^(?:â€”|-|n\/a|na|null|undefined)$/i.test(s);
+}
+
+function IMMS_CRM__titleCase(v) {
+  const s = IMMS_CRM__cleanText(v);
+  if (!s) return "â€”";
+  return s
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map(function(part) {
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+function IMMS_CRM__labelizeKey(key) {
+  return IMMS_CRM__cleanText(String(key || ""))
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\bId\b/g, "ID")
+    .replace(/\bOdo\b/g, "ODO")
+    .replace(/\bSku\b/g, "SKU")
+    .replace(/\bRef\b/g, "Ref")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/(^|\s)\S/g, function(m) { return m.toUpperCase(); });
+}
+
+function IMMS_CRM__sanitizeForDisplay(value, depth) {
+  if (depth === void 0) depth = 0;
+  if (value === void 0 || value === null || value === "") return "â€”";
+  if (typeof value === "string") {
+    if (/^data:image\//i.test(value)) return "[Image data hidden]";
+    const cleaned = IMMS_CRM__cleanText(value);
+    if (!cleaned) return "â€”";
+    if (cleaned.length > 280 && /^([A-Za-z0-9+/=\-_.:,;])+$/i.test(cleaned)) {
+      return cleaned.slice(0, 120) + " â€¦";
+    }
+    return cleaned;
+  }
+  if (typeof value === "number") return value;
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+
+  const d = IMMS_CRM__asDate(value);
   if (
     d &&
-    (typeof v === "string" ||
-      typeof v === "number" ||
-      (v && typeof v.toDate === "function") ||
-      (v && typeof v.seconds === "number"))
+    (typeof value === "string" ||
+      typeof value === "number" ||
+      (value && typeof value.toDate === "function") ||
+      (value && typeof value.seconds === "number"))
   ) {
     return d.toLocaleString();
   }
-  if (Array.isArray(v)) {
-    if (!v.length) return "[]";
-    try {
-      return JSON.stringify(v, null, 2);
-    } catch (_) {
-      return v.map((x) => String(x)).join(", ");
-    }
+
+  if (Array.isArray(value)) {
+    if (!value.length) return [];
+    return value.map(function(item) {
+      return IMMS_CRM__sanitizeForDisplay(item, depth + 1);
+    });
   }
-  if (typeof v === "object") {
-    try {
-      return JSON.stringify(
-        v,
-        (k, x) =>
-          x && typeof x.toDate === "function"
-            ? x.toDate().toISOString()
-            : x,
-        2
-      );
-    } catch (_) {
-      return String(v);
-    }
+
+  if (typeof value === "object") {
+    if (depth > 3) return "[Object]";
+    const out = {};
+    Object.entries(value).forEach(function(entry) {
+      const key = entry[0];
+      const val = entry[1];
+      if (/^__crm/.test(key)) return;
+      if (/^(image|image_url|imageUrl|photo|photoUrl|thumbnail)$/i.test(key)) return;
+      if (typeof val === "string" && /^data:image\//i.test(val)) return;
+      out[key] = IMMS_CRM__sanitizeForDisplay(val, depth + 1);
+    });
+    return out;
   }
-  return String(v);
+
+  return IMMS_CRM__cleanText(String(value));
+}
+
+function IMMS_CRM__formatValue(v) {
+  const clean = IMMS_CRM__sanitizeForDisplay(v);
+  if (clean === void 0 || clean === null || clean === "") return "â€”";
+  if (typeof clean === "number") return String(clean);
+  if (typeof clean === "string") return clean;
+  try {
+    return JSON.stringify(clean, null, 2);
+  } catch (_) {
+    return String(clean);
+  }
 }
 
 function IMMS_CRM__money(v) {
   const n = Number(v);
   return Number.isFinite(n)
-    ? "\u20B1" +
+    ? "â‚±" +
         n.toLocaleString("en-PH", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         })
     : "â€”";
+}
+
+function IMMS_CRM__paymentType(t) {
+  if (!t) return "â€”";
+  const pd = t.paymentDetails || {};
+  const raw =
+    pd.mode ||
+    pd.type ||
+    t.paymentMethod ||
+    t.payment_type ||
+    t.paymentType ||
+    t.mode ||
+    t.type;
+  const s = IMMS_CRM__cleanText(raw);
+  if (!s) return "â€”";
+  const lower = s.toLowerCase();
+  if (lower === "gcash") return "GCash";
+  if (lower === "paymaya") return "PayMaya";
+  if (lower === "split") return "Split Payment";
+  if (lower === "cash") return "Cash";
+  if (lower === "bank") return "Bank Transfer";
+  if (lower === "credit") return "Credit / Utang";
+  return IMMS_CRM__titleCase(s);
+}
+
+function IMMS_CRM__paymentInfoRows(t) {
+  const pd = (t && t.paymentDetails) || {};
+  const rows = [];
+  const pushRow = function(label, value, formatter) {
+    if (value === void 0 || value === null || value === "") return;
+    rows.push([label, formatter ? formatter(value) : IMMS_CRM__formatValue(value)]);
+  };
+  pushRow("Payment Type", IMMS_CRM__paymentType(t));
+  pushRow("Reference No.", pd.refNum || pd.referenceNo || t.refNum || t.referenceNo);
+  pushRow("Amount Paid", t.amountPaid != null ? t.amountPaid : pd.amountPaid, IMMS_CRM__money);
+  pushRow("Change", t.change != null ? t.change : pd.change, IMMS_CRM__money);
+  pushRow("Split Cash", pd.splitCash, IMMS_CRM__money);
+  pushRow("Split GCash", pd.splitGcash || pd.splitGCash, IMMS_CRM__money);
+  pushRow("Split PayMaya", pd.splitPaymaya || pd.splitPayMaya, IMMS_CRM__money);
+  pushRow("Split Bank", pd.splitBank, IMMS_CRM__money);
+  return rows.filter(function(entry, index, arr) {
+    return entry[1] !== "â€”" && arr.findIndex(function(x){ return x[0] === entry[0]; }) === index;
+  });
+}
+
+function IMMS_CRM__shouldHideField(key, value) {
+  if (!key || /^__crm/.test(key)) return true;
+  if (["items", "services", "parts", "serviceItems"].includes(key)) return true;
+  if (/^(image|image_url|imageUrl|photo|photoUrl|thumbnail)$/i.test(key)) return true;
+  if (typeof value === "string" && /^data:image\//i.test(value)) return true;
+  if (typeof value === "string" && value.length > 500 && !/\s/.test(value.slice(0, 250))) return true;
+  return false;
 }
 
 function IMMS_CRM_TransactionModal({ transaction: t, onClose: n }) {
@@ -2771,6 +2895,9 @@ function IMMS_CRM_TransactionModal({ transaction: t, onClose: n }) {
           ? t.grandTotal
           : t.amount;
 
+  const paymentInfo = IMMS_CRM__paymentInfoRows(t);
+  const paymentType = paymentInfo.length ? paymentInfo[0][1] : "â€”";
+
   const summary = [
     ["Reference", ref],
     ["Transaction ID", t.id],
@@ -2780,7 +2907,7 @@ function IMMS_CRM_TransactionModal({ transaction: t, onClose: n }) {
     ["Customer", customer],
     ["Customer ID", t.customerId],
     ["Plate / Motorcycle", t.plateNum || t.plateNo || t.plate || t.motorcycle],
-    ["Payment Method", t.paymentMethod || t.payment_type],
+    ["Payment Type", paymentType],
     ["Cashier", t.cashier || t.loggedBy || t.createdBy],
     [
       "Mechanic",
@@ -2789,25 +2916,27 @@ function IMMS_CRM_TransactionModal({ transaction: t, onClose: n }) {
         t.technicianName ||
         t.mechanicId,
     ],
+    ["Helper", t.helperName || t.helperId],
     ["Total", amount != null ? IMMS_CRM__money(amount) : null],
-  ].filter(
-    ([, value]) => value !== void 0 && value !== null && value !== ""
-  );
+  ].filter(function(entry) {
+    return !IMMS_CRM__isPlaceholderValue(entry[1]);
+  });
 
   const groups = [];
   if (Array.isArray(t.items) && t.items.length) groups.push(["Items", t.items]);
-  if (Array.isArray(t.services) && t.services.length)
-    groups.push(["Services", t.services]);
+  if (Array.isArray(t.services) && t.services.length) groups.push(["Services", t.services]);
   if (Array.isArray(t.parts) && t.parts.length) groups.push(["Parts", t.parts]);
   if (Array.isArray(t.serviceItems) && t.serviceItems.length)
     groups.push(["Service Items", t.serviceItems]);
 
-  const fields = Object.entries(t).filter(
-    ([key]) => !key.startsWith("__crm")
-  );
+  const fields = Object.entries(t).filter(function(entry) {
+    return !IMMS_CRM__shouldHideField(entry[0], entry[1]);
+  });
 
-  const renderLineTable = ([title, rows]) => {
-    const bodyRows = rows.map((line, index) => {
+  const renderLineTable = function(tuple) {
+    const title = tuple[0];
+    const rows = tuple[1];
+    const bodyRows = rows.map(function(line, index) {
       const qty = Number(line && line.qty != null ? line.qty : 1) || 0;
       const price =
         Number(
@@ -2821,31 +2950,34 @@ function IMMS_CRM_TransactionModal({ transaction: t, onClose: n }) {
         ) || 0;
       const lineTotal =
         line && line.total != null ? Number(line.total) : qty * price;
+      const itemName =
+        (line &&
+          IMMS_CRM__cleanText(
+            line.name || line.serviceName || line.description || line.itemName || ""
+          )) ||
+        "Unnamed";
+      const itemCode =
+        (line &&
+          IMMS_CRM__cleanText(line.sku || line.code || line.productCode || "")) ||
+        "â€”";
 
       return e(
         "tr",
         {
           key: index,
-          className:
-            "border-t border-slate-200 dark:border-slate-800",
+          className: "border-t border-slate-200 dark:border-slate-800",
         },
         e(
           "td",
           {
-            className:
-              "p-2 font-bold text-slate-800 dark:text-slate-200",
+            className: "p-2 font-bold text-slate-800 dark:text-slate-200",
           },
-          (line &&
-            (line.name ||
-              line.serviceName ||
-              line.description ||
-              line.itemName)) ||
-            "Unnamed"
+          itemName
         ),
         e(
           "td",
           { className: "p-2 text-slate-500 font-mono" },
-          (line && (line.sku || line.code || line.productCode)) || "â€”"
+          itemCode
         ),
         e("td", { className: "p-2 text-right" }, qty),
         e(
@@ -2906,8 +3038,10 @@ function IMMS_CRM_TransactionModal({ transaction: t, onClose: n }) {
     );
   };
 
-  const summaryCards = summary.map(([label, value]) =>
-    e(
+  const summaryCards = summary.map(function(entry) {
+    const label = entry[0];
+    const value = entry[1];
+    return e(
       "div",
       {
         key: label,
@@ -2928,18 +3062,39 @@ function IMMS_CRM_TransactionModal({ transaction: t, onClose: n }) {
           className:
             "text-sm font-bold text-slate-800 dark:text-slate-200 break-words whitespace-pre-wrap",
         },
-        label === "Date / Time"
-          ? IMMS_CRM__formatValue(value)
-          : String(value)
+        IMMS_CRM__formatValue(value)
       )
-    )
-  );
+    );
+  });
 
-  const completeFieldRows = fields.map(([key, value], index) =>
-    e(
+  const paymentRows = paymentInfo.slice(1).map(function(entry, index) {
+    return e(
       "div",
       {
-        key,
+        key: entry[0] + "-" + index,
+        className:
+          "flex items-center justify-between gap-3 py-2 border-t first:border-t-0 border-slate-200 dark:border-slate-800 text-sm",
+      },
+      e(
+        "span",
+        { className: "font-semibold text-slate-500" },
+        entry[0]
+      ),
+      e(
+        "span",
+        { className: "font-bold text-slate-800 dark:text-slate-200 text-right" },
+        entry[1]
+      )
+    );
+  });
+
+  const completeFieldRows = fields.map(function(entry, index) {
+    const key = entry[0];
+    const value = entry[1];
+    return e(
+      "div",
+      {
+        key: key,
         className:
           "grid grid-cols-1 sm:grid-cols-[220px_minmax(0,1fr)] border-b last:border-b-0 border-slate-200 dark:border-slate-800 " +
           (index % 2
@@ -2950,27 +3105,27 @@ function IMMS_CRM_TransactionModal({ transaction: t, onClose: n }) {
         "div",
         {
           className:
-            "px-3 py-2 text-[11px] font-bold text-slate-500 break-all",
+            "px-3 py-2 text-[11px] font-bold text-slate-500 break-words",
         },
-        key
+        IMMS_CRM__labelizeKey(key)
       ),
       e(
-        "pre",
+        "div",
         {
           className:
-            "px-3 py-2 text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap break-words font-sans overflow-x-auto",
+            "px-3 py-2 text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap break-words overflow-x-auto",
         },
         IMMS_CRM__formatValue(value)
       )
-    )
-  );
+    );
+  });
 
   return e(
     "div",
     {
       className:
         "fixed inset-0 modal-overlay z-[100] flex items-center justify-center p-3 sm:p-5",
-      onMouseDown: (event) => {
+      onMouseDown: function(event) {
         if (event.target === event.currentTarget) n();
       },
     },
@@ -2979,7 +3134,7 @@ function IMMS_CRM_TransactionModal({ transaction: t, onClose: n }) {
       {
         className:
           "w-full max-w-5xl max-h-[92vh] bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#2d3748] rounded-xl shadow-2xl flex flex-col animate-scale-in",
-        onMouseDown: (event) => event.stopPropagation(),
+        onMouseDown: function(event) { return event.stopPropagation(); },
       },
       e(
         "div",
@@ -2993,8 +3148,7 @@ function IMMS_CRM_TransactionModal({ transaction: t, onClose: n }) {
           e(
             "h3",
             {
-              className:
-                "font-black text-lg text-slate-900 dark:text-white",
+              className: "font-black text-lg text-slate-900 dark:text-white",
             },
             e("i", {
               className: isService
@@ -3006,10 +3160,9 @@ function IMMS_CRM_TransactionModal({ transaction: t, onClose: n }) {
           e(
             "p",
             {
-              className:
-                "text-xs text-slate-500 mt-1 font-mono",
+              className: "text-xs text-slate-500 mt-1 font-mono",
             },
-            String(ref)
+            IMMS_CRM__formatValue(ref)
           )
         ),
         e(
@@ -3027,17 +3180,33 @@ function IMMS_CRM_TransactionModal({ transaction: t, onClose: n }) {
       e(
         "div",
         {
-          className:
-            "p-4 sm:p-5 overflow-y-auto hide-scrollbar",
+          className: "p-4 sm:p-5 overflow-y-auto hide-scrollbar",
         },
         e(
           "div",
           {
-            className:
-              "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5",
+            className: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5",
           },
           summaryCards
         ),
+        paymentRows.length
+          ? e(
+              "div",
+              {
+                className:
+                  "mb-5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/40 p-4",
+              },
+              e(
+                "h4",
+                {
+                  className:
+                    "text-xs font-black uppercase tracking-wider text-violet-600 dark:text-violet-400 mb-2",
+                },
+                "Payment Details"
+              ),
+              paymentRows
+            )
+          : null,
         groups.map(renderLineTable),
         e(
           "div",
@@ -3048,7 +3217,7 @@ function IMMS_CRM_TransactionModal({ transaction: t, onClose: n }) {
               className:
                 "text-xs font-black uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-2",
             },
-            "Complete Saved Transaction Fields"
+            "Other Saved Fields"
           ),
           e(
             "div",
@@ -3056,7 +3225,15 @@ function IMMS_CRM_TransactionModal({ transaction: t, onClose: n }) {
               className:
                 "rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden",
             },
-            completeFieldRows
+            completeFieldRows.length
+              ? completeFieldRows
+              : e(
+                  "div",
+                  {
+                    className: "px-4 py-5 text-sm text-slate-500",
+                  },
+                  "No extra saved fields."
+                )
           )
         )
       ),
