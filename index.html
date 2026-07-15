@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- IMMS CRM clickable transaction details | 2026-07-15 -->
 <!-- IMMS local system-date date picker auto-sync | 2026-07-14 -->
 <!-- IMMS automatic 1-year retention for non-sales transaction/history records | 2026-07-14 -->
 <!-- IMMS service warranty transaction reference linkage | 2026-07-14 -->
@@ -2657,25 +2658,574 @@ className:"bg-slate-100 dark:bg-slate-950 sticky top-0 text-slate-600 dark:text-
 className:"p-3 text-right space-x-2"},React.createElement("button",{onClick:()=>$("Edit Service?",()=>O(t),!0),className:"text-blue-500 hover:text-blue-700 p-1 transition-colors"},React.createElement("i",{className:"fas fa-edit"})),React.createElement("button",{onClick:()=>$("Delete Service?",async()=>{await F.collection("services_list").doc(t.id).delete(),U("Service Deleted!")},!0),className:"text-red-500 hover:text-red-700 p-1 transition-colors"},React.createElement("i",{className:"fas fa-trash"}))))),(B==null?void 0:B.length)===0&&React.createElement("tr",null,React.createElement("td",{colSpan:"5",className:"text-center text-slate-500 py-10"},"No services listed yet."))))),b&&React.createElement("div",{className:"fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4"},React.createElement("form",{onSubmit:C,className:"bg-white dark:bg-[#151521] rounded-xl w-full max-w-2xl shadow-2xl flex flex-col border border-slate-200 dark:border-slate-800 transition-colors duration-300 animate-scale-in"},React.createElement("div",{className:"p-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center"},React.createElement("h3",{className:"font-bold text-lg text-slate-800 dark:text-white"},p?"Edit Service":"Add Service"),React.createElement("button",{type:"button",onClick:()=>k(!1),className:"text-slate-500 hover:text-red-500 transition-colors hover:scale-110"},React.createElement("i",{className:"fas fa-times text-xl"
 }))),React.createElement("div",{className:"p-6 space-y-5"},React.createElement("div",{className:"grid grid-cols-1 md:grid-cols-2 gap-5"},React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 block"},"Service Code *"),React.createElement("div",{className:"flex bg-slate-50 dark:bg-[#1c1c27] border border-slate-300 dark:border-slate-700 rounded-lg overflow-hidden focus-within:border-blue-500 transition-colors"},React.createElement("input",{required:!0,value:h.code,onChange:t=>A({...h,code:t.target.value}),className:"w-full p-2.5 bg-transparent text-sm text-slate-800 dark:text-white outline-none font-mono"}),React.createElement("button",{type:"button",onClick:T,className:"px-4 bg-slate-200 dark:bg-[#252536] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors border-l border-slate-300 dark:border-slate-700"},React.createElement("i",{className:"fas fa-magic"})))),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 block"},"Service Name *"),React.createElement("input",{required:!0,value:h.name,onChange:t=>A({...h,name:t.target.value}),className:"w-full p-2.5 bg-slate-50 dark:bg-[#1c1c27] border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-white outline-none focus:border-blue-500 transition-colors"}))),React.createElement("div",{
 className:"grid grid-cols-1 md:grid-cols-2 gap-5"},React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 block"},"Category *"),React.createElement("input",{required:!0,value:h.category,onChange:t=>A({...h,category:t.target.value}),className:"w-full p-2.5 bg-slate-50 dark:bg-[#1c1c27] border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-white outline-none focus:border-blue-500 transition-colors"})),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 block"},"Base Price (\u20B1) *"),React.createElement("input",{required:!0,type:"number",step:"0.01",value:h.price,onChange:t=>A({...h,price:t.target.value}),className:"w-full p-2.5 bg-slate-50 dark:bg-[#1c1c27] border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-white outline-none focus:border-blue-500 transition-colors"}))),React.createElement("div",{className:"grid grid-cols-1 md:grid-cols-2 gap-5"},React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 block"},"Type"),React.createElement("input",{value:h.type,onChange:t=>A({...h,type:t.target.value}),
-className:"w-full p-2.5 bg-slate-50 dark:bg-[#1c1c27] border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-white outline-none focus:border-blue-500 transition-colors"})),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 block"},"Description"),React.createElement("textarea",{rows:"1",value:h.description,onChange:t=>A({...h,description:t.target.value}),className:"w-full p-2.5 bg-slate-50 dark:bg-[#1c1c27] border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-white outline-none focus:border-blue-500 transition-colors resize-none"})))),React.createElement("div",{className:"p-5 border-t border-slate-200 dark:border-slate-800 rounded-b-xl flex justify-end gap-3 transition-colors duration-300"},React.createElement("button",{type:"button",onClick:()=>k(!1),className:"px-6 py-2.5 text-sm font-bold bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"},"Cancel"),React.createElement("button",{type:"submit",className:"px-8 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold rounded-lg shadow-md transition-all hover:-translate-y-0.5"},React.createElement("i",{className:"fas fa-save mr-2"}),"Save")))))}function CRMView({customers:B,sales:V,serviceOrders:F,settings:U,brands:$,models:q,db:h,notify:A,logAudit:p,setView:L,requestAction:b,requestPrompt:k}){
-const[T,C]=useState(!1),[O,t]=useState({name:"",phone:"",email:"",address:""}),[w,x]=useState(null),[u,g]=useState(null),[P,i]=useState(!1),[S,f]=useState(null),_={brand:"",model:"",plate:"",engine:"",chassis:"",color:"",odo:0,enPMS:!0,intPMS:4e3,enOil:!0,intOil:1500,enFuel:!0,intFuel:15e3,enSpark:!0,intSpark:8e3,enAir:!0,intAir:8e3,enCoolant:!0,intCoolant:12e3,lastMaintenanceDate:"",nextMaintenanceDate:"",maintenanceNotes:"",generalNotes:""},[s,j]=useState(_),c=async a=>{if(a.preventDefault(),w)await h.collection("customers").doc(w).update(O),A("Customer updated!");else{const R=`CUS-${Math.floor(1e4+Math.random()*9e4)}`;await h.collection("customers").add({...O,code:R,registeredAt:(new Date).toISOString(),motorcycles:[]}),A("Customer saved!")}C(!1),t({name:"",phone:"",email:"",address:""}),x(null)},E=a=>{t({name:a.name,phone:a.phone,email:a.email||"",address:a.address}),x(a.id),C(!0)},D=async a=>{if(a.preventDefault(),!u)return;let R=[...u.motorcycles||[]];S!==null?R[S]=s:R.push(s),await h.collection("customers").doc(u.id).update({motorcycles:R}),g({...u,motorcycles:R});const _em=u.email||u.customerEmail;if(_em&&s.nextMaintenanceDate){IMMS_API("sendMaintenanceUpdate",{email:_em,customerName:u.name||u.fullName||"",motorcycle:[s.brand,s.model].filter(Boolean).join(" ")||s.plate||"",serviceType:"Maintenance / PMS",nextDate:s.nextMaintenanceDate,note:s.maintenanceNotes||"",bookingLink:IMMS_BOOKING_LINK}).then(Rr=>{A(Rr&&Rr.success?(S!==null?"Motorcycle Updated + reminder emailed!":"Motorcycle Added + reminder emailed!"):"Saved (email failed: "+(Rr&&Rr.message||"unknown")+")")})}else{A(S!==null?"Motorcycle Updated!":"Motorcycle Added!")}i(!1),f(null),j(_)},H=(a,R)=>{j({..._,...a}),f(R),i(!0)},I=a=>{k("Enter new Odometer / KM reading:",async R=>{if(!R||isNaN(R))return;const r=[...u.motorcycles||[]];r.length>a&&(r[a].odo=Number(R),await h.collection("customers").doc(u.id).update({motorcycles:r}),g({...u,motorcycles:r}),A("Odometer Updated!"))},u.motorcycles[a].odo,!0)
-},M=u?(u.motorcycles||[]).map(a=>a.plate.toUpperCase().trim()):[],z=(F||[]).filter(a=>a.customerId===(u==null?void 0:u.id)||a.plateNum&&M.includes(a.plateNum.toUpperCase().trim())),o=(V||[]).filter(a=>a.customerId===(u==null?void 0:u.id)&&!a.isJobOrder&&!a.isPayment&&(a.items||[]).some(R=>R.isService)).map(a=>({id:a.id,plateNum:"POS Direct",issues:(a.items||[]).map(R=>`${R.qty}x ${R.name}`).join(", "),status:"Completed",createdAt:a.timestamp})),l=[...z,...o].sort((a,R)=>new Date(R.createdAt||0)-new Date(a.createdAt||0)),N=(V||[]).filter(a=>a.customerId===(u==null?void 0:u.id)&&!a.isPayment&&!a.isJobOrder&&!(a.items||[]).some(R=>R.isService)).sort((a,R)=>new Date(R.timestamp||0)-new Date(a.timestamp||0));return React.createElement("div",{className:"flex h-full gap-6 flex-col lg:flex-row bg-transparent animate-fade-in"},React.createElement("div",{className:"w-full lg:w-80 flex flex-col crm-card rounded-xl overflow-hidden shadow-sm"},React.createElement("div",{className:"p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900 transition-colors duration-300"},React.createElement("h3",{className:"font-bold text-slate-800 dark:text-slate-200"},React.createElement("i",{className:"fas fa-users mr-2"}),"Customers"),React.createElement("button",{onClick:()=>{t({name:"",phone:"",email:"",address:""}),x(null),C(!0)},
+className:"w-full p-2.5 bg-slate-50 dark:bg-[#1c1c27] border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-white outline-none focus:border-blue-500 transition-colors"})),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 block"},"Description"),React.createElement("textarea",{rows:"1",value:h.description,onChange:t=>A({...h,description:t.target.value}),className:"w-full p-2.5 bg-slate-50 dark:bg-[#1c1c27] border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-white outline-none focus:border-blue-500 transition-colors resize-none"})))),React.createElement("div",{className:"p-5 border-t border-slate-200 dark:border-slate-800 rounded-b-xl flex justify-end gap-3 transition-colors duration-300"},React.createElement("button",{type:"button",onClick:()=>k(!1),className:"px-6 py-2.5 text-sm font-bold bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"},"Cancel"),React.createElement("button",{type:"submit",className:"px-8 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold rounded-lg shadow-md transition-all hover:-translate-y-0.5"},React.createElement("i",{className:"fas fa-save mr-2"}),"Save")))))}
+function IMMS_CRM__asDate(v) {
+  try {
+    if (!v) return null;
+    if (v && typeof v.toDate === "function") return v.toDate();
+    if (v && typeof v.seconds === "number") return new Date(v.seconds * 1000);
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+  } catch (_) {
+    return null;
+  }
+}
+
+function IMMS_CRM__formatValue(v) {
+  if (v === void 0 || v === null || v === "") return "â€”";
+  if (typeof v === "boolean") return v ? "Yes" : "No";
+  const d = IMMS_CRM__asDate(v);
+  if (
+    d &&
+    (typeof v === "string" ||
+      typeof v === "number" ||
+      (v && typeof v.toDate === "function") ||
+      (v && typeof v.seconds === "number"))
+  ) {
+    return d.toLocaleString();
+  }
+  if (Array.isArray(v)) {
+    if (!v.length) return "[]";
+    try {
+      return JSON.stringify(v, null, 2);
+    } catch (_) {
+      return v.map((x) => String(x)).join(", ");
+    }
+  }
+  if (typeof v === "object") {
+    try {
+      return JSON.stringify(
+        v,
+        (k, x) =>
+          x && typeof x.toDate === "function"
+            ? x.toDate().toISOString()
+            : x,
+        2
+      );
+    } catch (_) {
+      return String(v);
+    }
+  }
+  return String(v);
+}
+
+function IMMS_CRM__money(v) {
+  const n = Number(v);
+  return Number.isFinite(n)
+    ? "\u20B1" +
+        n.toLocaleString("en-PH", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })
+    : "â€”";
+}
+
+function IMMS_CRM_TransactionModal({ transaction: t, onClose: n }) {
+  const e = React.createElement;
+
+  useEffect(() => {
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") n();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [n]);
+
+  if (!t) return null;
+
+  const isService =
+    t.__crmKind === "service" ||
+    (t.items || []).some((item) => item && item.isService) ||
+    Array.isArray(t.services) ||
+    t.serviceType ||
+    t.issues ||
+    t.plateNum;
+
+  const kind = isService
+    ? "Service Transaction Details"
+    : "Product Purchase Details";
+
+  const ref =
+    t.ref ||
+    t.reference ||
+    t.referenceNumber ||
+    t.transactionReference ||
+    t.transactionRef ||
+    t.jobOrderNo ||
+    t.code ||
+    t.id ||
+    "â€”";
+
+  const date =
+    t.timestamp || t.createdAt || t.completedAt || t.date || t.updatedAt;
+
+  const customer =
+    t.customer || t.customerName || t.fullName || t.clientName || "â€”";
+
+  const amount =
+    t.total != null
+      ? t.total
+      : t.totalAmount != null
+        ? t.totalAmount
+        : t.grandTotal != null
+          ? t.grandTotal
+          : t.amount;
+
+  const summary = [
+    ["Reference", ref],
+    ["Transaction ID", t.id],
+    ["Source", t.source || t.__crmSource],
+    ["Date / Time", date],
+    ["Status", t.status],
+    ["Customer", customer],
+    ["Customer ID", t.customerId],
+    ["Plate / Motorcycle", t.plateNum || t.plateNo || t.plate || t.motorcycle],
+    ["Payment Method", t.paymentMethod || t.payment_type],
+    ["Cashier", t.cashier || t.loggedBy || t.createdBy],
+    [
+      "Mechanic",
+      t.mechanicName ||
+        t.assignedMechanic ||
+        t.technicianName ||
+        t.mechanicId,
+    ],
+    ["Total", amount != null ? IMMS_CRM__money(amount) : null],
+  ].filter(
+    ([, value]) => value !== void 0 && value !== null && value !== ""
+  );
+
+  const groups = [];
+  if (Array.isArray(t.items) && t.items.length) groups.push(["Items", t.items]);
+  if (Array.isArray(t.services) && t.services.length)
+    groups.push(["Services", t.services]);
+  if (Array.isArray(t.parts) && t.parts.length) groups.push(["Parts", t.parts]);
+  if (Array.isArray(t.serviceItems) && t.serviceItems.length)
+    groups.push(["Service Items", t.serviceItems]);
+
+  const fields = Object.entries(t).filter(
+    ([key]) => !key.startsWith("__crm")
+  );
+
+  const renderLineTable = ([title, rows]) => {
+    const bodyRows = rows.map((line, index) => {
+      const qty = Number(line && line.qty != null ? line.qty : 1) || 0;
+      const price =
+        Number(
+          line && line.price != null
+            ? line.price
+            : line && line.unitPrice != null
+              ? line.unitPrice
+              : line && line.amount != null
+                ? line.amount
+                : 0
+        ) || 0;
+      const lineTotal =
+        line && line.total != null ? Number(line.total) : qty * price;
+
+      return e(
+        "tr",
+        {
+          key: index,
+          className:
+            "border-t border-slate-200 dark:border-slate-800",
+        },
+        e(
+          "td",
+          {
+            className:
+              "p-2 font-bold text-slate-800 dark:text-slate-200",
+          },
+          (line &&
+            (line.name ||
+              line.serviceName ||
+              line.description ||
+              line.itemName)) ||
+            "Unnamed"
+        ),
+        e(
+          "td",
+          { className: "p-2 text-slate-500 font-mono" },
+          (line && (line.sku || line.code || line.productCode)) || "â€”"
+        ),
+        e("td", { className: "p-2 text-right" }, qty),
+        e(
+          "td",
+          { className: "p-2 text-right" },
+          IMMS_CRM__money(price)
+        ),
+        e(
+          "td",
+          {
+            className:
+              "p-2 text-right font-bold text-emerald-600 dark:text-emerald-400",
+          },
+          IMMS_CRM__money(lineTotal)
+        )
+      );
+    });
+
+    return e(
+      "div",
+      { key: title, className: "mb-5" },
+      e(
+        "h4",
+        {
+          className:
+            "text-xs font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-2",
+        },
+        title + " (" + rows.length + ")"
+      ),
+      e(
+        "div",
+        {
+          className:
+            "overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700",
+        },
+        e(
+          "table",
+          { className: "w-full text-xs min-w-[650px]" },
+          e(
+            "thead",
+            {
+              className:
+                "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 uppercase",
+            },
+            e(
+              "tr",
+              null,
+              e("th", { className: "p-2 text-left" }, "Item / Service"),
+              e("th", { className: "p-2 text-left" }, "SKU / Code"),
+              e("th", { className: "p-2 text-right" }, "Qty"),
+              e("th", { className: "p-2 text-right" }, "Unit Price"),
+              e("th", { className: "p-2 text-right" }, "Line Total")
+            )
+          ),
+          e("tbody", null, bodyRows)
+        )
+      )
+    );
+  };
+
+  const summaryCards = summary.map(([label, value]) =>
+    e(
+      "div",
+      {
+        key: label,
+        className:
+          "rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-3",
+      },
+      e(
+        "p",
+        {
+          className:
+            "text-[10px] uppercase tracking-widest font-bold text-slate-500 mb-1",
+        },
+        label
+      ),
+      e(
+        "p",
+        {
+          className:
+            "text-sm font-bold text-slate-800 dark:text-slate-200 break-words whitespace-pre-wrap",
+        },
+        label === "Date / Time"
+          ? IMMS_CRM__formatValue(value)
+          : String(value)
+      )
+    )
+  );
+
+  const completeFieldRows = fields.map(([key, value], index) =>
+    e(
+      "div",
+      {
+        key,
+        className:
+          "grid grid-cols-1 sm:grid-cols-[220px_minmax(0,1fr)] border-b last:border-b-0 border-slate-200 dark:border-slate-800 " +
+          (index % 2
+            ? "bg-white dark:bg-[#111827]"
+            : "bg-slate-50 dark:bg-slate-900/60"),
+      },
+      e(
+        "div",
+        {
+          className:
+            "px-3 py-2 text-[11px] font-bold text-slate-500 break-all",
+        },
+        key
+      ),
+      e(
+        "pre",
+        {
+          className:
+            "px-3 py-2 text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap break-words font-sans overflow-x-auto",
+        },
+        IMMS_CRM__formatValue(value)
+      )
+    )
+  );
+
+  return e(
+    "div",
+    {
+      className:
+        "fixed inset-0 modal-overlay z-[100] flex items-center justify-center p-3 sm:p-5",
+      onMouseDown: (event) => {
+        if (event.target === event.currentTarget) n();
+      },
+    },
+    e(
+      "div",
+      {
+        className:
+          "w-full max-w-5xl max-h-[92vh] bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#2d3748] rounded-xl shadow-2xl flex flex-col animate-scale-in",
+        onMouseDown: (event) => event.stopPropagation(),
+      },
+      e(
+        "div",
+        {
+          className:
+            "p-4 border-b border-slate-200 dark:border-[#2d3748] flex items-center justify-between bg-slate-50 dark:bg-[#151a27] rounded-t-xl",
+        },
+        e(
+          "div",
+          null,
+          e(
+            "h3",
+            {
+              className:
+                "font-black text-lg text-slate-900 dark:text-white",
+            },
+            e("i", {
+              className: isService
+                ? "fas fa-wrench text-blue-500 mr-2"
+                : "fas fa-shopping-cart text-amber-500 mr-2",
+            }),
+            kind
+          ),
+          e(
+            "p",
+            {
+              className:
+                "text-xs text-slate-500 mt-1 font-mono",
+            },
+            String(ref)
+          )
+        ),
+        e(
+          "button",
+          {
+            type: "button",
+            onClick: n,
+            className:
+              "w-9 h-9 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-500 hover:text-red-500 hover:border-red-400 transition-colors",
+            title: "Close",
+          },
+          e("i", { className: "fas fa-times" })
+        )
+      ),
+      e(
+        "div",
+        {
+          className:
+            "p-4 sm:p-5 overflow-y-auto hide-scrollbar",
+        },
+        e(
+          "div",
+          {
+            className:
+              "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5",
+          },
+          summaryCards
+        ),
+        groups.map(renderLineTable),
+        e(
+          "div",
+          { className: "mt-2" },
+          e(
+            "h4",
+            {
+              className:
+                "text-xs font-black uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-2",
+            },
+            "Complete Saved Transaction Fields"
+          ),
+          e(
+            "div",
+            {
+              className:
+                "rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden",
+            },
+            completeFieldRows
+          )
+        )
+      ),
+      e(
+        "div",
+        {
+          className:
+            "p-4 border-t border-slate-200 dark:border-[#2d3748] bg-slate-50 dark:bg-[#151a27] rounded-b-xl flex justify-end",
+        },
+        e(
+          "button",
+          {
+            type: "button",
+            onClick: n,
+            className:
+              "px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold",
+          },
+          "Close"
+        )
+      )
+    )
+  );
+}
+
+function CRMView({customers:B,sales:V,serviceOrders:F,settings:U,brands:$,models:q,db:h,notify:A,logAudit:p,setView:L,requestAction:b,requestPrompt:k}){
+const[T,C]=useState(!1),[O,t]=useState({name:"",phone:"",email:"",address:""}),[w,x]=useState(null),[u,g]=useState(null),[P,i]=useState(!1),[S,f]=useState(null),[crmTxDetail,setCrmTxDetail]=useState(null),_={brand:"",model:"",plate:"",engine:"",chassis:"",color:"",odo:0,enPMS:!0,intPMS:4e3,enOil:!0,intOil:1500,enFuel:!0,intFuel:15e3,enSpark:!0,intSpark:8e3,enAir:!0,intAir:8e3,enCoolant:!0,intCoolant:12e3,lastMaintenanceDate:"",nextMaintenanceDate:"",maintenanceNotes:"",generalNotes:""},[s,j]=useState(_),c=async a=>{if(a.preventDefault(),w)await h.collection("customers").doc(w).update(O),A("Customer updated!");else{const R=`CUS-${Math.floor(1e4+Math.random()*9e4)}`;await h.collection("customers").add({...O,code:R,registeredAt:(new Date).toISOString(),motorcycles:[]}),A("Customer saved!")}C(!1),t({name:"",phone:"",email:"",address:""}),x(null)},E=a=>{t({name:a.name,phone:a.phone,email:a.email||"",address:a.address}),x(a.id),C(!0)},D=async a=>{if(a.preventDefault(),!u)return;let R=[...u.motorcycles||[]];S!==null?R[S]=s:R.push(s),await h.collection("customers").doc(u.id).update({motorcycles:R}),g({...u,motorcycles:R});const _em=u.email||u.customerEmail;if(_em&&s.nextMaintenanceDate){IMMS_API("sendMaintenanceUpdate",{email:_em,customerName:u.name||u.fullName||"",motorcycle:[s.brand,s.model].filter(Boolean).join(" ")||s.plate||"",serviceType:"Maintenance / PMS",nextDate:s.nextMaintenanceDate,note:s.maintenanceNotes||"",bookingLink:IMMS_BOOKING_LINK}).then(Rr=>{A(Rr&&Rr.success?(S!==null?"Motorcycle Updated + reminder emailed!":"Motorcycle Added + reminder emailed!"):"Saved (email failed: "+(Rr&&Rr.message||"unknown")+")")})}else{A(S!==null?"Motorcycle Updated!":"Motorcycle Added!")}i(!1),f(null),j(_)},H=(a,R)=>{j({..._,...a}),f(R),i(!0)},I=a=>{k("Enter new Odometer / KM reading:",async R=>{if(!R||isNaN(R))return;const r=[...u.motorcycles||[]];r.length>a&&(r[a].odo=Number(R),await h.collection("customers").doc(u.id).update({motorcycles:r}),g({...u,motorcycles:r}),A("Odometer Updated!"))},u.motorcycles[a].odo,!0)
+},M=u?(u.motorcycles||[]).map(a=>String(a.plate||"").toUpperCase().trim()).filter(Boolean):[],z=(F||[]).filter(a=>a.customerId===(u==null?void 0:u.id)||a.plateNum&&M.includes(String(a.plateNum).toUpperCase().trim())).map(a=>({...a,__crmKind:"service",__crmSource:a.source||"service_orders"})),o=(V||[]).filter(a=>a.customerId===(u==null?void 0:u.id)&&!a.isJobOrder&&!a.isPayment&&(a.items||[]).some(R=>R.isService)).map(a=>({...a,plateNum:a.plateNum||a.plateNo||a.plate||"POS Direct",issues:a.issues||(a.items||[]).map(R=>`${R.qty||1}x ${R.name||R.serviceName||"Service"}`).join(", "),status:a.status||"Completed",createdAt:a.createdAt||a.timestamp,__crmKind:"service",__crmSource:a.source||"sales"})),l=[...z,...o].sort((a,R)=>new Date(R.createdAt||R.timestamp||0)-new Date(a.createdAt||a.timestamp||0)),N=(V||[]).filter(a=>a.customerId===(u==null?void 0:u.id)&&!a.isPayment&&!a.isJobOrder&&!(a.items||[]).some(R=>R.isService)).map(a=>({...a,__crmKind:"product",__crmSource:a.source||"sales"})).sort((a,R)=>new Date(R.timestamp||R.createdAt||0)-new Date(a.timestamp||a.createdAt||0));return React.createElement(React.Fragment,null,React.createElement("div",{className:"flex h-full gap-6 flex-col lg:flex-row bg-transparent animate-fade-in"},React.createElement("div",{className:"w-full lg:w-80 flex flex-col crm-card rounded-xl overflow-hidden shadow-sm"},React.createElement("div",{className:"p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900 transition-colors duration-300"},React.createElement("h3",{className:"font-bold text-slate-800 dark:text-slate-200"},React.createElement("i",{className:"fas fa-users mr-2"}),"Customers"),React.createElement("button",{onClick:()=>{t({name:"",phone:"",email:"",address:""}),x(null),C(!0)},
 className:"bg-blue-600 text-white px-2 py-1 rounded text-xs font-bold hover:bg-blue-700 hover:scale-110 transition-transform"},React.createElement("i",{className:"fas fa-plus"}))),React.createElement("div",{className:"flex-1 overflow-y-auto p-2 space-y-1 hide-scrollbar"},(B||[]).map(a=>React.createElement("button",{key:a.id,onClick:()=>g(a),className:`w-full text-left p-3 rounded-lg border transition-all duration-300 ${(u==null?void 0:u.id)===a.id?"bg-slate-100 dark:bg-slate-800 border-blue-500 shadow-md transform scale-[1.02]":"bg-transparent border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/50"}`},React.createElement("p",{className:"font-bold text-sm text-slate-800 dark:text-slate-200"},a.name),React.createElement("p",{className:"text-[10px] text-slate-500 mt-0.5"},React.createElement("i",{className:"fas fa-phone mr-1"}),a.phone))))),React.createElement("div",{className:"flex-1 flex flex-col rounded-xl overflow-hidden"},u?React.createElement("div",{className:"h-full flex flex-col gap-4 overflow-y-auto hide-scrollbar animate-fade-in"},React.createElement("div",{className:"flex justify-end"},React.createElement("button",{onClick:()=>L("bookings"),className:"bg-blue-50 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-600 hover:text-white dark:hover:bg-blue-600 dark:hover:text-white px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-sm hover:-translate-y-0.5"},React.createElement("i",{
 className:"fas fa-calendar-check mr-2"})," Manage Client Bookings")),React.createElement("div",{className:"grid grid-cols-1 xl:grid-cols-3 gap-4"},React.createElement("div",{className:"crm-card rounded-xl p-5 shadow-sm transition-all hover:shadow-md"},React.createElement("div",{className:"flex justify-between items-center mb-4"},React.createElement("h3",{className:"font-bold text-blue-500 flex items-center"},React.createElement("i",{className:"fas fa-user-circle mr-2 text-lg"}),"Customer Info"),React.createElement("div",null,React.createElement("button",{onClick:async()=>{if(!u||!u.email||u.email.indexOf("@")===-1)return A("This customer has no email on file.","error");A("Sending reminder...");const R=await IMMS_API("sendReminder",{email:u.email,name:u.name||"",detail:"Manual reminder from your trusted motorshop.",bookingLink:IMMS_BOOKING_LINK});R&&R.success?A("Reminder email sent to "+u.name):A(R&&R.message||"Failed to send email.","error")},title:"Send manual email reminder",className:"text-slate-500 hover:text-orange-500 dark:hover:text-orange-400 transition-colors hover:scale-110 mr-3"},React.createElement("i",{className:"fas fa-paper-plane"})),React.createElement("button",{onClick:()=>b("Edit Customer Profile?",()=>E(u),!0),className:"text-slate-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors hover:scale-110"},React.createElement("i",{className:"fas fa-edit"})),React.createElement("button",{onClick:()=>b("Delete this customer?",async()=>{
 await h.collection("customers").doc(u.id).delete(),g(null),A("Customer Deleted")},!0),className:"text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors hover:scale-110 ml-3"},React.createElement("i",{className:"fas fa-trash"})))),React.createElement("div",{className:"space-y-3 text-sm"},React.createElement("div",{className:"flex"},React.createElement("span",{className:"w-24 text-slate-500"},"Code:"),React.createElement("span",{className:"font-bold text-amber-600 dark:text-amber-500 border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-2 py-0.5 rounded text-xs"},u.code)),React.createElement("div",{className:"flex"},React.createElement("span",{className:"w-24 text-slate-500"},"Phone:"),React.createElement("span",{className:"text-slate-700 dark:text-slate-300"},u.phone)),React.createElement("div",{className:"flex"},React.createElement("span",{className:"w-24 text-slate-500"},"Email:"),React.createElement("span",{className:"text-slate-700 dark:text-slate-300"},u.email||"N/A")),React.createElement("div",{className:"flex"},React.createElement("span",{className:"w-24 text-slate-500"},"Address:"),React.createElement("span",{className:"text-slate-700 dark:text-slate-300"},u.address)),React.createElement("div",{className:"flex"},React.createElement("span",{className:"w-24 text-slate-500"},"Since:"),React.createElement("span",{className:"text-slate-700 dark:text-slate-300"},safeDate(u.registeredAt)))),React.createElement("button",{
 onClick:()=>{f(null),j(_),i(!0)},className:"w-full mt-6 py-2 border border-amber-500/50 text-amber-600 dark:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-lg font-bold text-sm transition-all hover:-translate-y-0.5"},React.createElement("i",{className:"fas fa-plus mr-2"}),"Add Motorcycle")),React.createElement("div",{className:"xl:col-span-2 crm-card rounded-xl p-5 shadow-sm flex flex-col transition-all hover:shadow-md"},React.createElement("h3",{className:"font-bold text-amber-500 mb-4 flex items-center"},React.createElement("i",{className:"fas fa-motorcycle mr-2 text-lg"}),"Motorcycles ( ",(u.motorcycles||[]).length," )"),React.createElement("div",{className:"flex-1 overflow-y-auto space-y-3 pr-2 hide-scrollbar"},(!u.motorcycles||u.motorcycles.length===0)&&React.createElement("p",{className:"text-slate-500 text-sm italic"},"No records."),(u.motorcycles||[]).map((a,R)=>React.createElement("div",{key:R,className:"bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 relative group transition-all duration-300 hover:shadow-sm"},React.createElement("div",{className:"absolute top-4 right-4 flex gap-2"},React.createElement("button",{onClick:()=>b("Edit Motorcycle Details?",()=>H(a,R),!0),className:"text-xs text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 bg-white dark:bg-slate-800 px-2 py-1 rounded border border-slate-200 dark:border-slate-700 transition-colors"},React.createElement("i",{className:"fas fa-edit"
 })),React.createElement("button",{onClick:()=>b("Delete this motorcycle?",async()=>{let r=[...u.motorcycles];r.splice(R,1),await h.collection("customers").doc(u.id).update({motorcycles:r}),g({...u,motorcycles:r}),A("Motorcycle deleted!")},!0),className:"text-xs text-red-500 hover:text-red-600 bg-white dark:bg-slate-800 px-2 py-1 rounded border border-slate-200 dark:border-slate-700 transition-colors"},React.createElement("i",{className:"fas fa-trash"})),React.createElement("button",{onClick:()=>I(R),className:"text-xs border border-green-500/50 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/20 px-2 py-1 rounded transition-colors"},"+ ODO")),React.createElement("h4",{className:"font-bold text-slate-800 dark:text-slate-200 text-lg uppercase tracking-wide"},a.brand," ",a.model),React.createElement("p",{className:"text-[10px] text-slate-500 dark:text-slate-400 mt-1 uppercase"},"Plate: ",React.createElement("span",{className:"text-amber-600 dark:text-amber-400 font-bold"},a.plate)," \u2022 Engine No. ",a.engine," \u2022 Chassis No. ",a.chassis," \u2022 Color: ",a.color),React.createElement("p",{className:"text-xs text-slate-700 dark:text-slate-300 mt-2 font-medium"},React.createElement("i",{className:"fas fa-tachometer-alt mr-1 text-slate-500"})," ",a.odo||0," km"),React.createElement("div",{className:"mt-4 bg-white dark:bg-[#171b26] border border-blue-200 dark:border-blue-900/30 rounded-lg p-3 transition-colors duration-300"
 },React.createElement("div",{className:"flex justify-between items-center mb-2"},React.createElement("h5",{className:"text-[10px] font-bold text-blue-500 uppercase"},React.createElement("i",{className:"fas fa-clipboard-list mr-1"}),"Next Service Schedule"),a.nextMaintenanceDate&&React.createElement("span",{className:"text-[10px] bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400 px-2 py-0.5 rounded font-bold uppercase tracking-wider"},"Target: ",new Date(a.nextMaintenanceDate).toLocaleDateString())),React.createElement("div",{className:"grid grid-cols-2 gap-2 text-xs"},a.enPMS!==!1&&React.createElement("div",{className:"text-slate-700 dark:text-slate-300"},React.createElement("i",{className:"fas fa-wrench text-amber-500 w-4"})," PMS: ",React.createElement("span",{className:"font-bold"},(a.odo||0)+Number(a.intPMS||4e3)," km")),a.enOil!==!1&&React.createElement("div",{className:"text-slate-700 dark:text-slate-300"},React.createElement("i",{className:"fas fa-oil-can text-blue-500 w-4"})," Oil Change: ",React.createElement("span",{className:"font-bold"},(a.odo||0)+Number(a.intOil||1500)," km")),a.enFuel!==!1&&React.createElement("div",{className:"text-slate-700 dark:text-slate-300"},React.createElement("i",{className:"fas fa-filter text-green-500 w-4"})," Fuel Filter: ",React.createElement("span",{className:"font-bold"},(a.odo||0)+Number(a.intFuel||15e3)," km")),a.enSpark!==!1&&React.createElement("div",{className:"text-slate-700 dark:text-slate-300"
-},React.createElement("i",{className:"fas fa-bolt text-yellow-500 w-4"})," Spark Plug: ",React.createElement("span",{className:"font-bold"},(a.odo||0)+Number(a.intSpark||8e3)," km")),a.enAir!==!1&&React.createElement("div",{className:"text-slate-700 dark:text-slate-300"},React.createElement("i",{className:"fas fa-wind text-pink-500 w-4"})," Air Filter: ",React.createElement("span",{className:"font-bold"},(a.odo||0)+Number(a.intAir||8e3)," km")),a.enCoolant!==!1&&React.createElement("div",{className:"text-slate-700 dark:text-slate-300"},React.createElement("i",{className:"fas fa-tint text-cyan-500 w-4"})," Coolant: ",React.createElement("span",{className:"font-bold"},(a.odo||0)+Number(a.intCoolant||12e3)," km"))),a.maintenanceNotes&&React.createElement("p",{className:"text-[10px] text-slate-500 mt-2 border-t border-slate-200 dark:border-slate-800 pt-2 italic"},React.createElement("i",{className:"fas fa-info-circle mr-1"})," ",a.maintenanceNotes))))))),React.createElement("div",{className:"grid grid-cols-1 md:grid-cols-2 gap-4 flex-1"},React.createElement("div",{className:"crm-card rounded-xl p-5 shadow-sm flex flex-col transition-all hover:shadow-md"},React.createElement("h3",{className:"font-bold text-blue-500 mb-4"},React.createElement("i",{className:"fas fa-wrench mr-2"}),"Service History ( ",l.length," )"),React.createElement("div",{className:"flex-1 overflow-y-auto space-y-2 pr-2 hide-scrollbar"},l.map(a=>React.createElement("div",{key:a.id,
-className:"bg-slate-50 dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-800 flex justify-between items-center transition-colors duration-300 hover:bg-slate-100 dark:hover:bg-slate-800/80"},React.createElement("div",null,React.createElement("span",{className:"font-bold text-sm text-slate-800 dark:text-slate-200"},a.plateNum),React.createElement("p",{className:"text-xs text-slate-500 dark:text-slate-400 truncate w-48"},a.issues)),React.createElement("div",{className:"text-right"},React.createElement("span",{className:"text-[10px] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded font-bold text-slate-600 dark:text-slate-300 transition-colors duration-300"},a.status),React.createElement("p",{className:"text-[10px] text-slate-500 mt-1"},safeDate(a.createdAt))))),l.length===0&&React.createElement("p",{className:"text-center text-slate-500 dark:text-slate-600 text-sm mt-4"},"No service history."))),React.createElement("div",{className:"crm-card rounded-xl p-5 shadow-sm flex flex-col transition-all hover:shadow-md"},React.createElement("h3",{className:"font-bold text-amber-500 mb-4"},React.createElement("i",{className:"fas fa-shopping-cart mr-2"}),"Product Purchases ( ",N.length," )"),React.createElement("div",{className:"flex-1 overflow-y-auto space-y-2 pr-2 hide-scrollbar"},N.map(a=>React.createElement("div",{key:a.id,
-className:"bg-slate-50 dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-800 flex justify-between items-center transition-colors duration-300 hover:bg-slate-100 dark:hover:bg-slate-800/80"},React.createElement("div",null,React.createElement("p",{className:"font-bold text-sm text-slate-800 dark:text-slate-200"},a.ref),React.createElement("p",{className:"text-[10px] text-slate-500 dark:text-slate-400"},(a.items||[]).length," items")),React.createElement("div",{className:"text-right"},React.createElement("span",{className:"font-bold text-green-600 dark:text-green-400"},"\u20B1",(a.total||0).toLocaleString()),React.createElement("p",{className:"text-[10px] text-slate-500 mt-1"},safeDate(a.timestamp))))),N.length===0&&React.createElement("p",{className:"text-center text-slate-500 dark:text-slate-600 text-sm mt-4"},"No product purchases."))))):React.createElement("div",{className:"h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 crm-card rounded-xl"},React.createElement("i",{className:"fas fa-address-card text-6xl mb-4 opacity-20"}),React.createElement("p",null,"Select a customer to view profile."))),T&&React.createElement("div",{className:"fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4"},React.createElement("form",{onSubmit:c,
+},React.createElement("i",{className:"fas fa-bolt text-yellow-500 w-4"})," Spark Plug: ",React.createElement("span",{className:"font-bold"},(a.odo||0)+Number(a.intSpark||8e3)," km")),a.enAir!==!1&&React.createElement("div",{className:"text-slate-700 dark:text-slate-300"},React.createElement("i",{className:"fas fa-wind text-pink-500 w-4"})," Air Filter: ",React.createElement("span",{className:"font-bold"},(a.odo||0)+Number(a.intAir||8e3)," km")),a.enCoolant!==!1&&React.createElement("div",{className:"text-slate-700 dark:text-slate-300"},React.createElement("i",{className:"fas fa-tint text-cyan-500 w-4"})," Coolant: ",React.createElement("span",{className:"font-bold"},(a.odo||0)+Number(a.intCoolant||12e3)," km"))),a.maintenanceNotes&&React.createElement("p",{className:"text-[10px] text-slate-500 mt-2 border-t border-slate-200 dark:border-slate-800 pt-2 italic"},React.createElement("i",{className:"fas fa-info-circle mr-1"})," ",a.maintenanceNotes))))))),React.createElement("div",{className:"grid grid-cols-1 md:grid-cols-2 gap-4 flex-1"},React.createElement("div",{className:"crm-card rounded-xl p-5 shadow-sm flex flex-col transition-all hover:shadow-md"},React.createElement("h3",{className:"font-bold text-blue-500 mb-4"},React.createElement("i",{className:"fas fa-wrench mr-2"}),"Service History ( ",l.length," )"),React.createElement("div",{className:"flex-1 overflow-y-auto space-y-2 pr-2 hide-scrollbar"},l.map((a) =>
+  React.createElement(
+    "div",
+    {
+      key: a.id,
+      role: "button",
+      tabIndex: 0,
+      onClick: () => setCrmTxDetail(a),
+      onKeyDown: (R) => {
+        if (R.key === "Enter" || R.key === " ") {
+          R.preventDefault();
+          setCrmTxDetail(a);
+        }
+      },
+      className:
+        "bg-slate-50 dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-800 flex justify-between items-center transition-all duration-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:border-blue-400 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/50",
+    },
+    React.createElement(
+      "div",
+      null,
+      React.createElement(
+        "span",
+        {
+          className:
+            "font-bold text-sm text-slate-800 dark:text-slate-200",
+        },
+        a.plateNum || a.plateNo || a.plate || "Service Transaction"
+      ),
+      React.createElement(
+        "p",
+        {
+          className:
+            "text-xs text-slate-500 dark:text-slate-400 truncate w-48",
+        },
+        a.issues ||
+          a.serviceType ||
+          a.description ||
+          "Click to view complete details"
+      )
+    ),
+    React.createElement(
+      "div",
+      { className: "text-right flex items-center gap-3" },
+      React.createElement(
+        "div",
+        null,
+        React.createElement(
+          "span",
+          {
+            className:
+              "text-[10px] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded font-bold text-slate-600 dark:text-slate-300 transition-colors duration-300",
+          },
+          a.status || "Completed"
+        ),
+        React.createElement(
+          "p",
+          { className: "text-[10px] text-slate-500 mt-1" },
+          safeDate(a.createdAt || a.timestamp)
+        )
+      ),
+      React.createElement("i", {
+        className: "fas fa-chevron-right text-blue-500 text-xs",
+      })
+    )
+  )
+),l.length===0&&React.createElement("p",{className:"text-center text-slate-500 dark:text-slate-600 text-sm mt-4"},"No service history."))),React.createElement("div",{className:"crm-card rounded-xl p-5 shadow-sm flex flex-col transition-all hover:shadow-md"},React.createElement("h3",{className:"font-bold text-amber-500 mb-4"},React.createElement("i",{className:"fas fa-shopping-cart mr-2"}),"Product Purchases ( ",N.length," )"),React.createElement("div",{className:"flex-1 overflow-y-auto space-y-2 pr-2 hide-scrollbar"},N.map((a) =>
+  React.createElement(
+    "div",
+    {
+      key: a.id,
+      role: "button",
+      tabIndex: 0,
+      onClick: () => setCrmTxDetail(a),
+      onKeyDown: (R) => {
+        if (R.key === "Enter" || R.key === " ") {
+          R.preventDefault();
+          setCrmTxDetail(a);
+        }
+      },
+      className:
+        "bg-slate-50 dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-800 flex justify-between items-center transition-all duration-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:border-amber-400 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500/50",
+    },
+    React.createElement(
+      "div",
+      null,
+      React.createElement(
+        "p",
+        {
+          className:
+            "font-bold text-sm text-slate-800 dark:text-slate-200",
+        },
+        a.ref || a.reference || a.id
+      ),
+      React.createElement(
+        "p",
+        {
+          className:
+            "text-[10px] text-slate-500 dark:text-slate-400",
+        },
+        (a.items || []).length,
+        " items â€¢ Click for complete details"
+      )
+    ),
+    React.createElement(
+      "div",
+      { className: "text-right flex items-center gap-3" },
+      React.createElement(
+        "div",
+        null,
+        React.createElement(
+          "span",
+          {
+            className:
+              "font-bold text-green-600 dark:text-green-400",
+          },
+          IMMS_CRM__money(a.total != null ? a.total : a.totalAmount)
+        ),
+        React.createElement(
+          "p",
+          { className: "text-[10px] text-slate-500 mt-1" },
+          safeDate(a.timestamp || a.createdAt)
+        )
+      ),
+      React.createElement("i", {
+        className: "fas fa-chevron-right text-amber-500 text-xs",
+      })
+    )
+  )
+),N.length===0&&React.createElement("p",{className:"text-center text-slate-500 dark:text-slate-600 text-sm mt-4"},"No product purchases."))))):React.createElement("div",{className:"h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 crm-card rounded-xl"},React.createElement("i",{className:"fas fa-address-card text-6xl mb-4 opacity-20"}),React.createElement("p",null,"Select a customer to view profile."))),T&&React.createElement("div",{className:"fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4"},React.createElement("form",{onSubmit:c,
 className:"bg-white dark:bg-slate-900 p-6 rounded-xl w-full max-w-md shadow-2xl space-y-4 border border-slate-200 dark:border-slate-700 transition-colors duration-300 animate-scale-in"},React.createElement("div",{className:"flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 mb-2"},React.createElement("h3",{className:"font-bold text-lg text-slate-800 dark:text-white"},w?"Edit Profile":"New Customer"),React.createElement("button",{type:"button",onClick:()=>C(!1),className:"text-slate-500 hover:scale-110 transition-transform"},React.createElement("i",{className:"fas fa-times"}))),React.createElement("input",{required:!0,placeholder:"Full Name",value:O.name,onChange:a=>t({...O,name:a.target.value}),className:"w-full p-3 border rounded-lg input-dark text-sm outline-none focus:border-blue-500 transition-colors"}),React.createElement("input",{required:!0,placeholder:"Phone Number",value:O.phone,onChange:a=>t({...O,phone:a.target.value}),className:"w-full p-3 border rounded-lg input-dark text-sm outline-none focus:border-blue-500 transition-colors"}),React.createElement("input",{type:"email",placeholder:"Email Address (Optional)",value:O.email,onChange:a=>t({...O,email:a.target.value}),className:"w-full p-3 border rounded-lg input-dark text-sm outline-none focus:border-blue-500 transition-colors"}),React.createElement("textarea",{required:!0,placeholder:"Complete Address",rows:"2",value:O.address,onChange:a=>t({...O,address:a.target.value}),
 className:"w-full p-3 border rounded-lg input-dark text-sm outline-none focus:border-blue-500 transition-colors"}),React.createElement("button",{type:"submit",className:"w-full bg-blue-600 text-white font-bold py-3 rounded-lg mt-2 shadow hover:bg-blue-700 transition-all hover:-translate-y-0.5"},w?"Update":"Save"," Profile"))),P&&React.createElement("div",{className:"fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4"},React.createElement("form",{onSubmit:D,className:"bg-white dark:bg-slate-900 rounded-xl w-full max-w-3xl shadow-2xl flex flex-col border border-slate-200 dark:border-slate-700 max-h-[90vh] transition-colors duration-300 animate-scale-in"},React.createElement("div",{className:"flex justify-between items-center border-b border-slate-200 dark:border-slate-800 p-4"},React.createElement("h3",{className:"font-bold text-lg text-slate-800 dark:text-white"},React.createElement("i",{className:"fas fa-motorcycle mr-2 text-amber-500"}),S!==null?"Edit":"Add"," Motorcycle"),React.createElement("button",{type:"button",onClick:()=>i(!1),className:"text-slate-500 hover:text-red-500 hover:scale-110 transition-all"},React.createElement("i",{className:"fas fa-times text-xl"}))),React.createElement("div",{className:"p-6 overflow-y-auto grid grid-cols-1 lg:grid-cols-2 gap-6 hide-scrollbar"},React.createElement("div",{className:"space-y-4"},React.createElement("h4",{
 className:"text-xs font-bold text-blue-600 dark:text-blue-500 uppercase tracking-wider mb-2 border-b border-slate-200 dark:border-slate-800 pb-2 transition-colors duration-300"},"Vehicle Information"),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-600 dark:text-slate-500"},"Brand *"),React.createElement("select",{required:!0,value:s.brand,onChange:a=>j({...s,brand:a.target.value}),className:"w-full p-3 border rounded-lg input-dark text-sm outline-none mt-1 transition-colors"},React.createElement("option",{value:""},"Select Brand..."),($||[]).map(a=>React.createElement("option",{key:a.id,value:a.name},a.name)))),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-600 dark:text-slate-500"},"Model (e.g. Aerox 155) *"),React.createElement("input",{required:!0,value:s.model,onChange:a=>j({...s,model:a.target.value}),className:"w-full p-3 border rounded-lg input-dark text-sm outline-none mt-1 transition-colors"})),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-600 dark:text-slate-500"},"Plate Number *"),React.createElement("input",{required:!0,value:s.plate,onChange:a=>j({...s,plate:a.target.value}),className:"w-full p-3 border rounded-lg input-dark text-sm outline-none uppercase mt-1 transition-colors"})),React.createElement("div",{className:"grid grid-cols-2 gap-3"},React.createElement("div",null,React.createElement("label",{
 className:"text-xs font-bold text-slate-600 dark:text-slate-500"},"Engine No."),React.createElement("input",{value:s.engine,onChange:a=>j({...s,engine:a.target.value}),className:"w-full p-3 border rounded-lg input-dark text-sm outline-none mt-1 transition-colors"})),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-600 dark:text-slate-500"},"Chassis No."),React.createElement("input",{value:s.chassis,onChange:a=>j({...s,chassis:a.target.value}),className:"w-full p-3 border rounded-lg input-dark text-sm outline-none mt-1 transition-colors"}))),React.createElement("div",{className:"grid grid-cols-2 gap-3"},React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-600 dark:text-slate-500"},"Color *"),React.createElement("input",{required:!0,value:s.color,onChange:a=>j({...s,color:a.target.value}),className:"w-full p-3 border rounded-lg input-dark text-sm outline-none uppercase mt-1 transition-colors"})),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-600 dark:text-slate-500"},"Current Odometer *"),React.createElement("input",{required:!0,type:"number",value:s.odo,onChange:a=>j({...s,odo:Number(a.target.value)}),className:"w-full p-3 border rounded-lg input-dark text-sm outline-none mt-1 transition-colors"})))),React.createElement("div",null,React.createElement("h4",{
 className:"text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider mb-2 border-b border-slate-200 dark:border-slate-800 pb-2 transition-colors duration-300"},React.createElement("i",{className:"fas fa-wrench mr-2"}),"Service Schedule Intervals"),React.createElement("div",{className:"space-y-3 mb-6"},[{key:"PMS",icon:"fa-wrench",color:"text-amber-500",def:4e3},{key:"Oil",icon:"fa-oil-can",color:"text-blue-500",def:1500},{key:"Fuel",icon:"fa-filter",color:"text-green-500",def:15e3},{key:"Spark",icon:"fa-bolt",color:"text-yellow-500",def:8e3},{key:"Air",icon:"fa-wind",color:"text-pink-500",def:8e3},{key:"Coolant",icon:"fa-tint",color:"text-cyan-500",def:12e3}].map(a=>React.createElement("div",{key:a.key,className:"flex items-center gap-3 bg-slate-50 dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors duration-300"},React.createElement("input",{type:"checkbox",checked:s[`en${a.key}`],onChange:R=>j({...s,[`en${a.key}`]:R.target.checked}),className:"w-4 h-4 rounded accent-blue-600"}),React.createElement("label",{className:"w-20 text-sm font-bold text-slate-800 dark:text-slate-200"},React.createElement("i",{className:`fas ${a.icon} ${a.color} w-5`})," ",a.key),React.createElement("input",{type:"number",disabled:!s[`en${a.key}`],value:s[`int${a.key}`],onChange:R=>j({...s,[`int${a.key}`]:Number(R.target.value)}),
 className:"w-20 p-2 border rounded input-dark text-sm outline-none focus:border-blue-500 disabled:opacity-50 transition-colors"}),React.createElement("span",{className:"text-[10px] text-slate-500 flex-1 hidden sm:block"},"km (def: ",a.def,")")))),React.createElement("h4",{className:"text-xs font-bold text-blue-500 dark:text-blue-400 uppercase tracking-wider mb-3 border-b border-slate-200 dark:border-slate-800 pb-2 transition-colors duration-300"},React.createElement("i",{className:"fas fa-calendar-alt mr-2"}),"Maintenance Schedule"),React.createElement("div",{className:"grid grid-cols-2 gap-3 mb-4"},React.createElement("div",null,React.createElement("label",{className:"text-[10px] font-bold text-slate-500 uppercase block mb-1"},"Last Maintenance Date"),React.createElement("input",{type:"date",value:s.lastMaintenanceDate||"",onChange:a=>j({...s,lastMaintenanceDate:a.target.value}),className:"w-full p-2.5 border rounded-lg input-dark text-sm outline-none focus:border-blue-500 transition-colors"})),React.createElement("div",null,React.createElement("label",{className:"text-[10px] font-bold text-slate-500 uppercase block mb-1"},"Next Maintenance Date"),React.createElement("input",{type:"date",value:s.nextMaintenanceDate||"",onChange:a=>j({...s,nextMaintenanceDate:a.target.value}),className:"w-full p-2.5 border rounded-lg input-dark text-sm outline-none focus:border-blue-500 transition-colors"}))),React.createElement("div",{className:"mb-4"},React.createElement("label",{
-className:"text-[10px] font-bold text-slate-500 uppercase block mb-1"},"Maintenance Notes"),React.createElement("textarea",{placeholder:"e.g. Next PMS at 15,000 km, needs oil filter...",rows:"2",value:s.maintenanceNotes||"",onChange:a=>j({...s,maintenanceNotes:a.target.value}),className:"w-full p-2.5 border rounded-lg input-dark text-sm outline-none focus:border-blue-500 transition-colors"})),React.createElement("div",null,React.createElement("label",{className:"text-[10px] font-bold text-slate-500 uppercase block mb-1"},"General Notes"),React.createElement("textarea",{rows:"2",value:s.generalNotes||"",onChange:a=>j({...s,generalNotes:a.target.value}),className:"w-full p-2.5 border rounded-lg input-dark text-sm outline-none focus:border-blue-500 transition-colors"})))),React.createElement("div",{className:"p-4 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3 bg-slate-50 dark:bg-slate-950 rounded-b-xl transition-colors duration-300"},React.createElement("button",{type:"button",onClick:()=>i(!1),className:"px-6 py-2 text-sm font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white rounded transition-colors"},"Cancel"),React.createElement("button",{type:"submit",className:"bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold py-2 px-8 rounded shadow hover:-translate-y-0.5 transition-all"},S!==null?"Update Motorcycle":"Save to Garage")))))}function CustomerCreditsView({db:B,notify:V,logAudit:F,user:U,requestAction:$}){
+className:"text-[10px] font-bold text-slate-500 uppercase block mb-1"},"Maintenance Notes"),React.createElement("textarea",{placeholder:"e.g. Next PMS at 15,000 km, needs oil filter...",rows:"2",value:s.maintenanceNotes||"",onChange:a=>j({...s,maintenanceNotes:a.target.value}),className:"w-full p-2.5 border rounded-lg input-dark text-sm outline-none focus:border-blue-500 transition-colors"})),React.createElement("div",null,React.createElement("label",{className:"text-[10px] font-bold text-slate-500 uppercase block mb-1"},"General Notes"),React.createElement("textarea",{rows:"2",value:s.generalNotes||"",onChange:a=>j({...s,generalNotes:a.target.value}),className:"w-full p-2.5 border rounded-lg input-dark text-sm outline-none focus:border-blue-500 transition-colors"})))),React.createElement("div",{className:"p-4 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3 bg-slate-50 dark:bg-slate-950 rounded-b-xl transition-colors duration-300"},React.createElement("button",{type:"button",onClick:()=>i(!1),className:"px-6 py-2 text-sm font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white rounded transition-colors"},"Cancel"),React.createElement("button",{type:"submit",className:"bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold py-2 px-8 rounded shadow hover:-translate-y-0.5 transition-all"},S!==null?"Update Motorcycle":"Save to Garage"))))),crmTxDetail&&React.createElement(IMMS_CRM_TransactionModal,{transaction:crmTxDetail,onClose:()=>setCrmTxDetail(null)}))}function CustomerCreditsView({db:B,notify:V,logAudit:F,user:U,requestAction:$}){
 const[q,h]=useState([]),[A,p]=useState([]),[L,b]=useState([]),[k,T]=useState(!1),[C,O]=useState(null),[t,w]=useState(!1),[x,u]=useState(!1),[g,P]=useState([]),[i,S]=useState(""),[f,_]=useState("All Status"),[s,j]=useState({id:null,customerId:"",customerName:"",phone:"",creditLimit:"",status:"Active",notes:""}),c={productId:"",description:"",quantity:1,amount:"",reference:"",date:IMMS_LOCAL_DATE(),motorcycleBrand:"",compatibility:"",isPartial:!0,partialPercent:"",months:""},[E,D]=useState(c),[H,I]=useState({amount:"",date:IMMS_LOCAL_DATE(),reference:""});useEffect(()=>{const y=B.collection("customer_credits").onSnapshot(ie=>h(ie.docs.map(ue=>({id:ue.id,...ue.data()})))),K=B.collection("products").onSnapshot(ie=>p(ie.docs.map(ue=>({id:ue.id,...ue.data()})))),te=B.collection("customers").onSnapshot(ie=>b(ie.docs.map(ue=>({id:ue.id,...ue.data()}))));return()=>{y(),K(),te()}},[B]),useEffect(()=>{if(!C)return;const y=B.collection("credit_transactions").where("accountId","==",C.id).onSnapshot(K=>{const te=K.docs.map(ie=>({id:ie.id,...ie.data()}));P(te.sort((ie,ue)=>new Date(ue.date)-new Date(ie.date)))});return()=>y()},[C,B]);const M=q.filter(y=>y.status!=="Settled").reduce((y,K)=>y+Number(K.balance||0),0),z=q.filter(y=>Number(y.balance||0)>0&&y.status!=="Blocked").length,o=q.filter(y=>y.status==="Settled").length,l=q.filter(y=>y.status==="Blocked").length,N=q.filter(y=>{
 const K=(y.customerName||"").toLowerCase().includes(i.toLowerCase())||(y.phone||"").includes(i),te=f==="All Status"?!0:(y.status||"").toUpperCase()===f.toUpperCase();return K&&te}).sort((y,K)=>(K.balance||0)-(y.balance||0)),a=y=>y?y.split(" ").map(K=>K[0]).join("").toUpperCase().substring(0,2):"NA",R=()=>{const y=`Customer Name,Phone,Balance,Credit Limit,Status,Notes\n`,K=N.map(he=>`"${he.customerName}","${he.phone||""}","${he.balance||0}","${he.creditLimit||"No Limit"}","${he.status}","${he.notes||""}"`).join(`\n`),te=new Blob([y+K],{type:"text/csv"}),ie=window.URL.createObjectURL(te),ue=document.createElement("a");ue.href=ie,ue.download="Accounts_Receivable_List.csv",ue.click()},r=y=>{const K=L.find(te=>te.name.toLowerCase()===y.toLowerCase());j(K?te=>({...te,customerId:K.id,customerName:K.name,phone:K.phone||""}):te=>({...te,customerId:"",customerName:y}))},X=async y=>{y.preventDefault();const K={customerId:s.customerId,customerName:s.customerName,phone:s.phone,creditLimit:s.creditLimit?Number(s.creditLimit):null,status:s.status,notes:s.notes,timestamp:(new Date).toISOString()};s.id?(await B.collection("customer_credits").doc(s.id).update(K),V("Credit Account Updated!")):(await B.collection("customer_credits").add({...K,balance:0}),V("New Credit Account Created!")),T(!1)},d=y=>{j({id:y.id,customerId:y.customerId||"",customerName:y.customerName,phone:y.phone||"",creditLimit:y.creditLimit||"",status:y.status||"Active",notes:y.notes||""}),T(!0)},G=y=>{
 const K=A.find(te=>te.id===y);if(!K)return D(te=>({...te,productId:""}));D(te=>({...te,productId:K.id,description:K.name,amount:(K.price||0)*te.quantity,motorcycleBrand:K.compatBrand||"",compatibility:K.compatModel||""}))},Z=async y=>{if(y.preventDefault(),!C)return;const K=Number(E.amount)||0,te={accountId:C.id,date:E.date,type:"Charge",description:E.description,motorcycle:E.motorcycleBrand+(E.compatibility?` - ${E.compatibility}`:"")||"Universal",paymentType:E.isPartial?`Partial ${E.partialPercent}%`:"Full (100%)",months:E.months?`${E.months} mo.`:"-",reference:E.reference||"-",amount:K,timestamp:(new Date).toISOString(),loggedBy:(U==null?void 0:U.username)||(U==null?void 0:U.name)||"Admin"};await B.collection("credit_transactions").add(te);const ie=(C.balance||0)+K;await B.collection("customer_credits").doc(C.id).update({balance:ie}),O(ue=>({...ue,balance:ie})),F("ADD_CHARGE",`Added \u20B1${K} charge to ${C.customerName}`),V("Charge added successfully!"),w(!1),D(c)},de=async y=>{if(y.preventDefault(),!C)return;const K=Number(H.amount)||0,te={accountId:C.id,date:H.date,type:"Payment",description:"PARTIAL PAYMENT",motorcycle:"-",paymentType:"-",months:"-",reference:H.reference||"-",amount:K,timestamp:(new Date).toISOString(),loggedBy:(U==null?void 0:U.username)||(U==null?void 0:U.name)||"Admin"};await B.collection("credit_transactions").add(te);const ie=(C.balance||0)-K,ue={balance:ie};ie<=0&&(ue.status="Settled"),await B.collection("customer_credits").doc(C.id).update(ue),
@@ -2736,7 +3286,7 @@ className:"flex-1 overflow-auto hide-scrollbar"},React.createElement("table",{cl
 className:"bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-2 py-1 rounded text-xs font-bold"},new Date(P.timeIn).toLocaleTimeString()):"-"),React.createElement("td",{className:"p-4"},P.timeOut?React.createElement("span",{className:"bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 px-2 py-1 rounded text-xs font-bold"},new Date(P.timeOut).toLocaleTimeString()):React.createElement("span",{className:"text-amber-500 text-xs font-bold italic"},"Active")),React.createElement("td",{className:"p-4 font-bold text-blue-600 dark:text-blue-400"},g(P.timeIn,P.timeOut)),React.createElement("td",{className:"p-4 text-right space-x-3"},React.createElement("button",{onClick:()=>u(P),className:"text-blue-500 hover:text-blue-700 transition-colors hover:scale-110"},React.createElement("i",{className:"fas fa-edit"})),React.createElement("button",{onClick:()=>w(P.id),className:"text-red-500 hover:text-red-700 transition-colors hover:scale-110"},React.createElement("i",{className:"fas fa-trash"}))))),V.length===0&&React.createElement("tr",null,React.createElement("td",{colSpan:"6",className:"text-center text-slate-500 py-10"},"No attendance logs found.")))))),b&&React.createElement("div",{className:"fixed inset-0 modal-overlay z-[100] flex items-center justify-center p-4"},React.createElement("form",{onSubmit:x,
 className:"bg-white dark:bg-slate-900 rounded-xl w-full max-w-sm shadow-2xl flex flex-col border border-slate-200 dark:border-slate-700 transition-colors duration-300 animate-scale-in"},React.createElement("div",{className:"p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-[#0f1522] rounded-t-xl"},React.createElement("h3",{className:"font-bold text-lg text-slate-800 dark:text-white"},React.createElement("i",{className:"fas fa-user-edit text-blue-500 mr-2"}),"Edit Attendance Record"),React.createElement("button",{type:"button",onClick:()=>k(!1),className:"text-slate-500 hover:text-red-500 transition-colors"},React.createElement("i",{className:"fas fa-times"}))),React.createElement("div",{className:"p-5 space-y-4"},React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-600 dark:text-slate-400 mb-1 block uppercase"},"Record Date"),React.createElement("input",{required:!0,type:"date",value:T.date,onChange:P=>C({...T,date:P.target.value}),className:"w-full p-2.5 border rounded-lg input-dark text-sm outline-none focus:border-blue-500 transition-colors"})),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-green-600 dark:text-green-500 mb-1 block uppercase"},"Time IN"),React.createElement("input",{type:"time",value:T.timeIn,onChange:P=>C({...T,timeIn:P.target.value}),
 className:"w-full p-2.5 border rounded-lg input-dark text-sm outline-none focus:border-green-500 transition-colors"})),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-red-600 dark:text-red-500 mb-1 block uppercase"},"Time OUT"),React.createElement("input",{type:"time",value:T.timeOut,onChange:P=>C({...T,timeOut:P.target.value}),className:"w-full p-2.5 border rounded-lg input-dark text-sm outline-none focus:border-red-500 transition-colors"}))),React.createElement("div",{className:"p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0f1522] rounded-b-xl flex gap-2 justify-end transition-colors duration-300"},React.createElement("button",{type:"button",onClick:()=>k(!1),className:"px-4 py-2 font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white"},"Cancel"),React.createElement("button",{type:"submit",className:"bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded-lg shadow transition-all hover:-translate-y-0.5"},"Update Record")))))}function AnalyticsView({sales:B,expenses:V,payrollLogs:F,employees:U,db:$,notify:q,requestAction:h,requestPrompt:IMMS_prompt,user:IMMS_user,logAudit:IMMS_logAudit}){const[A,p]=useState("Daily"),[L,b]=useState(IMMS_LOCAL_DATE()),[k,T]=useState(!1),[C,O]=useState("All Status"),[t,w]=useState("All Types"),[x,u]=useState("All Method"),g=useRef(null),P=useRef(null),i=useMemo(()=>{const base=IMMS__computePeriodFinance({sales:B,expenses:V,payrollLogs:F,employees:U,periodMode:A,selectedDate:L});return{pSales:base.productSales,sRev:base.serviceRevenue,combinedTotal:base.combinedTotal,cogs:base.cogs,mPay:base.mechanicPay,sShare:base.shopShare,voids:base.voids,voidAmt:base.voidAmt,pProfit:base.productProfit,combinedProfit:base.shopRevenue,opEx:base.totalExpenses,netProfit:base.netProfit,roi:base.roi,roiBase:base.roiBase,roiOnExpenses:base.totalExpenses>0,periodSales:base.periodSales,voidedSalesList:base.voidedSalesList,mechanics:base.mechanics,serviceJobs:base.serviceJobs,productTransactions:base.productTransactions,combinedJobs:base.combinedJobs}},[B,V,F,U,A,L]);useEffect(()=>{if(!window.Chart||!g.current)return;P.current&&P.current.destroy();let s=[],j=[];if(A==="Daily"){let D=Array(24).fill(0);i.periodSales.forEach(H=>{if(H.status!=="Voided"){
-const I=new Date(H.timestamp).getHours();D[I]+=H.total||0}}),s=["00:00","03:00","06:00","09:00","12:00","15:00","18:00","21:00"],j=[D[0],D[3],D[6],D[9],D[12],D[15],D[18],D[21]]}else if(A==="Monthly"){let D=new Date(L.slice(0,4),L.slice(5,7),0).getDate(),H=Array(D).fill(0);i.periodSales.forEach(I=>{if(I.status!=="Voided"){const M=new Date(I.timestamp).getDate();H[M-1]+=I.total||0}});for(let I=1;I<=D;I+=3)s.push(I),j.push(H[I-1])}else{let D=Array(12).fill(0);i.periodSales.forEach(H=>{if(H.status!=="Voided"){const I=new Date(H.timestamp).getMonth();D[I]+=H.total||0}}),s=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],j=D}let E=g.current.getContext("2d").createLinearGradient(0,0,0,400);return E.addColorStop(0,"rgba(249, 115, 22, 0.5)"),E.addColorStop(1,"rgba(249, 115, 22, 0.0)"),P.current=new window.Chart(g.current,{type:"line",data:{labels:s,datasets:[{data:j,borderColor:"#f97316",backgroundColor:E,borderWidth:2,pointRadius:3,pointBackgroundColor:"#f97316",fill:!0,tension:.4}]},options:{responsive:!0,maintainAspectRatio:!1,plugins:{legend:{display:!1}},scales:{x:{grid:{color:"rgba(255,255,255,0.05)"},ticks:{color:"#64748b",font:{size:10}}},y:{grid:{color:"rgba(255,255,255,0.05)"},ticks:{color:"#64748b",font:{size:10},callback:D=>"\u20B1"+D},beginAtZero:!0}}}}),()=>{P.current&&P.current.destroy()}},[i,A,L]);const S=s=>{if(!s||!s.id)return;const actor=String(IMMS_user&&(IMMS_user.name||IMMS_user.username||IMMS_user.email)||"System"),actorId=String(IMMS_user&&(IMMS_user.id||IMMS_user.username||IMMS_user.email)||"system"),actorRole=String(IMMS_user&&(IMMS_user.role||IMMS_user.position)||""),itemSnapshot=(s.items||[]).map(D=>({id:D.id||"",productId:D.productId||"",sku:D.sku||"",name:String(D.name||"Unnamed item"),qty:Number(D.qty)||1,price:Number(D.price)||0,isService:!!D.isService,isBundle:!!D.isBundle,components:(D.components||[]).map(H=>({productId:H.productId||H.id||"",qty:Number(H.qty)||0}))})),itemNames=itemSnapshot.map(D=>`${D.name} x${D.qty}`).join(", ")||"No item details";const saveVoid=async reason=>{const cleanReason=String(reason||"Mistaken / cancelled transaction").trim()||"Mistaken / cancelled transaction",voidedAt=(new Date).toISOString(),saleRef=$.collection("sales").doc(s.id),skuFallback={};try{for(const D of s.items||[]){if(D.isService||D.isBundle||D.id||D.productId||!D.sku)continue;const H=await $.collection("products").where("sku","==",String(D.sku)).limit(1).get();H.empty||(skuFallback[String(D.sku)]=H.docs[0].id)}const result=await $.runTransaction(async tx=>{const saleSnap=await tx.get(saleRef);if(!saleSnap.exists)throw new Error("Transaction no longer exists.");const saleData={id:saleSnap.id,...saleSnap.data()};if(saleData.status==="Voided"||saleData.inventoryRestored===!0)throw new Error("This transaction is already voided and cannot be restored twice.");const saleItems=Array.isArray(saleData.items)?saleData.items:[],restoreMap={},restoreLabels={};saleItems.forEach(D=>{const H=Math.max(0,Number(D.qty)||1);if(D.isService)return;if(D.isBundle){(D.components||[]).forEach(I=>{const M=String(I.productId||I.id||"").trim(),z=Math.max(0,Number(I.qty)||0)*H;if(M&&z>0)restoreMap[M]=(restoreMap[M]||0)+z,restoreLabels[M]=String(I.name||D.name||"Bundle component")})}else{const I=String(D.productId||D.id||skuFallback[String(D.sku||"")]||"").trim(),M=H;if(I&&M>0)restoreMap[I]=(restoreMap[I]||0)+M,restoreLabels[I]=String(D.name||"Product")}});const productIds=Object.keys(restoreMap),productRefs=productIds.map(D=>$.collection("products").doc(D)),productSnaps=await Promise.all(productRefs.map(D=>tx.get(D))),restored=[],missing=[];productSnaps.forEach((D,H)=>{const I=productIds[H],M=Number(restoreMap[I])||0;if(D.exists&&M>0){const z=D.data()||{};tx.update(productRefs[H],{stock:firebase.firestore.FieldValue.increment(M),updatedAt:firebase.firestore.FieldValue.serverTimestamp()});restored.push({productId:I,productName:z.name||restoreLabels[I]||"Product",sku:z.sku||"",qty:M})}else M>0&&missing.push({productId:I,productName:restoreLabels[I]||"Product",qty:M})});const currentSnapshot=saleItems.map(D=>({id:D.id||"",productId:D.productId||"",sku:D.sku||"",name:String(D.name||"Unnamed item"),qty:Number(D.qty)||1,price:Number(D.price)||0,isService:!!D.isService,isBundle:!!D.isBundle,components:(D.components||[]).map(H=>({productId:H.productId||H.id||"",qty:Number(H.qty)||0}))})),currentNames=currentSnapshot.map(D=>`${D.name} x${D.qty}`).join(", ")||"No item details",originalTotal=Number(saleData.total)||0;tx.update(saleRef,{status:"Voided",voidReason:cleanReason,voidedBy:actor,voidedById:actorId,voidedByRole:actorRole,voidedAt:voidedAt,voidedItems:currentSnapshot,voidedItemNames:currentNames,voidedOriginalTotal:originalTotal,inventoryRestored:!0,inventoryRestoredAt:voidedAt,inventoryRestoredBy:actor,inventoryRestoreDetails:restored,inventoryRestoreMissing:missing,salesReversed:!0,salesReversedAt:voidedAt,reversedAmount:originalTotal});return{saleData,restored,missing,currentNames,originalTotal}});if(result.restored.length){const logBatch=$.batch();result.restored.forEach(D=>{const H=$.collection("inventory_logs").doc();logBatch.set(H,{productId:D.productId,productName:D.productName,sku:D.sku||"",type:"Add",qty:D.qty,qtyChange:D.qty,reason:`Void inventory restoration - ${result.saleData.ref||s.id}`,ref:result.saleData.ref||s.id,beforeStock:null,afterStock:null,timestamp:voidedAt,by:actor,source:"VOID_TRANSACTION"})});await logBatch.commit()}if(result.saleData.ref){const payrollSnap=await $.collection("payroll_logs").where("refJob","==",result.saleData.ref).get();if(!payrollSnap.empty){const payrollBatch=$.batch();payrollSnap.docs.forEach(D=>payrollBatch.update(D.ref,{status:"Voided",voidReason:cleanReason,voidedAt:voidedAt,voidedBy:actor}));await payrollBatch.commit()}const creditSnap=await $.collection("customer_credits").where("refId","==",result.saleData.ref).get();if(!creditSnap.empty){const creditBatch=$.batch();creditSnap.docs.forEach(D=>creditBatch.update(D.ref,{status:"Voided",balance:0,voidReason:cleanReason,voidedAt:voidedAt,voidedBy:actor}));await creditBatch.commit()}}IMMS_logAudit&&IMMS_logAudit("VOID_TRANSACTION",`Voided ${result.saleData.ref||s.id} | Sales reversed: ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â±${result.originalTotal} | Inventory restored: ${result.restored.map(D=>`${D.productName} +${D.qty}`).join(", ")||"No stock items"} | By: ${actor} | Reason: ${cleanReason}`);const missingMsg=result.missing.length?` Some deleted/missing products could not be restored: ${result.missing.map(D=>D.productName).join(", ")}.`:"";q(`Transaction voided. ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â±${result.originalTotal.toLocaleString(void 0,{minimumFractionDigits:2})} removed from active sales and inventory restored.${missingMsg}`,result.missing.length?"warning":"success")}catch(err){console.error("Void reversal failed:",err),q(err&&err.message?err.message:"Unable to void the transaction. No inventory or sales changes were applied.","error")}};const askReason=()=>{const reason=window.prompt("Enter the reason for voiding this transaction:","Mistaken / cancelled transaction");reason!==null&&saveVoid(reason)};if(IMMS_prompt)IMMS_prompt(`Void transaction ${s.ref||""}? This will restore all stock items and remove the amount from active sales. Enter the reason below.`,saveVoid,"Mistaken / cancelled transaction",!0);else h?h(`Void transaction ${s.ref||""}? Stock will be restored and the sale will be reversed.`,askReason,!0):askReason()},f=()=>{const s=`Date,Code,Customer,Items,Amount,Method,Status,Sold By,Voided At,Voided By,Void Reason\n`,j=i.periodSales.map(H=>{var I;const M=(H.voidedItemNames||(H.voidedItems||H.items||[]).map(z=>`${z.name||"Unnamed item"} x${Number(z.qty)||1}`).join(" | ")||"").replace(/"/g,'""'),VR=String(H.voidReason||"").replace(/"/g,'""');return`"${new Date(H.timestamp).toLocaleString()}","${H.ref}","${H.customer}","${M}",${H.total},"${(I=H.paymentDetails)===null||I===void 0?void 0:I.mode}","${H.status}","${H.cashier||"System"}","${H.voidedAt?new Date(H.voidedAt).toLocaleString():""}","${H.voidedBy||""}","${VR}"`}).join(`\n`),c=new Blob([s+j],{type:"text/csv"}),E=window.URL.createObjectURL(c),D=document.createElement("a");D.href=E,D.download=`Sales_Log_${L}.csv`,D.click()},_=i.periodSales.filter(s=>{var j;const c=C==="All Status"?!0:C==="Active"?s.status!=="Voided":s.status==="Voided",E=(s.items||[]).some(I=>I.isService),D=t==="All Types"?!0:t==="Service"?E:!E,H=x==="All Method"?!0:((j=s.paymentDetails)===null||j===void 0?void 0:j.mode)===x;return c&&D&&H});return React.createElement("div",{className:"h-full flex flex-col gap-4 animate-fade-in text-slate-200 relative"},React.createElement("div",{className:"bg-[#151a27] border border-[#2d3748] rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4 shadow-sm shrink-0"},React.createElement("div",{className:"flex bg-[#0f1522] border border-[#2d3748] rounded-lg p-1"},["Daily","Monthly","Annual"].map(s=>React.createElement("button",{key:s,onClick:()=>p(s),className:`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${A===s?"bg-orange-600 text-white":"text-slate-500 hover:text-slate-300"}`},s))),React.createElement("div",{className:"flex gap-2 items-center"},React.createElement("input",{
+const I=new Date(H.timestamp).getHours();D[I]+=H.total||0}}),s=["00:00","03:00","06:00","09:00","12:00","15:00","18:00","21:00"],j=[D[0],D[3],D[6],D[9],D[12],D[15],D[18],D[21]]}else if(A==="Monthly"){let D=new Date(L.slice(0,4),L.slice(5,7),0).getDate(),H=Array(D).fill(0);i.periodSales.forEach(I=>{if(I.status!=="Voided"){const M=new Date(I.timestamp).getDate();H[M-1]+=I.total||0}});for(let I=1;I<=D;I+=3)s.push(I),j.push(H[I-1])}else{let D=Array(12).fill(0);i.periodSales.forEach(H=>{if(H.status!=="Voided"){const I=new Date(H.timestamp).getMonth();D[I]+=H.total||0}}),s=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],j=D}let E=g.current.getContext("2d").createLinearGradient(0,0,0,400);return E.addColorStop(0,"rgba(249, 115, 22, 0.5)"),E.addColorStop(1,"rgba(249, 115, 22, 0.0)"),P.current=new window.Chart(g.current,{type:"line",data:{labels:s,datasets:[{data:j,borderColor:"#f97316",backgroundColor:E,borderWidth:2,pointRadius:3,pointBackgroundColor:"#f97316",fill:!0,tension:.4}]},options:{responsive:!0,maintainAspectRatio:!1,plugins:{legend:{display:!1}},scales:{x:{grid:{color:"rgba(255,255,255,0.05)"},ticks:{color:"#64748b",font:{size:10}}},y:{grid:{color:"rgba(255,255,255,0.05)"},ticks:{color:"#64748b",font:{size:10},callback:D=>"\u20B1"+D},beginAtZero:!0}}}}),()=>{P.current&&P.current.destroy()}},[i,A,L]);const S=s=>{if(!s||!s.id)return;const actor=String(IMMS_user&&(IMMS_user.name||IMMS_user.username||IMMS_user.email)||"System"),actorId=String(IMMS_user&&(IMMS_user.id||IMMS_user.username||IMMS_user.email)||"system"),actorRole=String(IMMS_user&&(IMMS_user.role||IMMS_user.position)||""),itemSnapshot=(s.items||[]).map(D=>({id:D.id||"",productId:D.productId||"",sku:D.sku||"",name:String(D.name||"Unnamed item"),qty:Number(D.qty)||1,price:Number(D.price)||0,isService:!!D.isService,isBundle:!!D.isBundle,components:(D.components||[]).map(H=>({productId:H.productId||H.id||"",qty:Number(H.qty)||0}))})),itemNames=itemSnapshot.map(D=>`${D.name} x${D.qty}`).join(", ")||"No item details";const saveVoid=async reason=>{const cleanReason=String(reason||"Mistaken / cancelled transaction").trim()||"Mistaken / cancelled transaction",voidedAt=(new Date).toISOString(),saleRef=$.collection("sales").doc(s.id),skuFallback={};try{for(const D of s.items||[]){if(D.isService||D.isBundle||D.id||D.productId||!D.sku)continue;const H=await $.collection("products").where("sku","==",String(D.sku)).limit(1).get();H.empty||(skuFallback[String(D.sku)]=H.docs[0].id)}const result=await $.runTransaction(async tx=>{const saleSnap=await tx.get(saleRef);if(!saleSnap.exists)throw new Error("Transaction no longer exists.");const saleData={id:saleSnap.id,...saleSnap.data()};if(saleData.status==="Voided"||saleData.inventoryRestored===!0)throw new Error("This transaction is already voided and cannot be restored twice.");const saleItems=Array.isArray(saleData.items)?saleData.items:[],restoreMap={},restoreLabels={};saleItems.forEach(D=>{const H=Math.max(0,Number(D.qty)||1);if(D.isService)return;if(D.isBundle){(D.components||[]).forEach(I=>{const M=String(I.productId||I.id||"").trim(),z=Math.max(0,Number(I.qty)||0)*H;if(M&&z>0)restoreMap[M]=(restoreMap[M]||0)+z,restoreLabels[M]=String(I.name||D.name||"Bundle component")})}else{const I=String(D.productId||D.id||skuFallback[String(D.sku||"")]||"").trim(),M=H;if(I&&M>0)restoreMap[I]=(restoreMap[I]||0)+M,restoreLabels[I]=String(D.name||"Product")}});const productIds=Object.keys(restoreMap),productRefs=productIds.map(D=>$.collection("products").doc(D)),productSnaps=await Promise.all(productRefs.map(D=>tx.get(D))),restored=[],missing=[];productSnaps.forEach((D,H)=>{const I=productIds[H],M=Number(restoreMap[I])||0;if(D.exists&&M>0){const z=D.data()||{};tx.update(productRefs[H],{stock:firebase.firestore.FieldValue.increment(M),updatedAt:firebase.firestore.FieldValue.serverTimestamp()});restored.push({productId:I,productName:z.name||restoreLabels[I]||"Product",sku:z.sku||"",qty:M})}else M>0&&missing.push({productId:I,productName:restoreLabels[I]||"Product",qty:M})});const currentSnapshot=saleItems.map(D=>({id:D.id||"",productId:D.productId||"",sku:D.sku||"",name:String(D.name||"Unnamed item"),qty:Number(D.qty)||1,price:Number(D.price)||0,isService:!!D.isService,isBundle:!!D.isBundle,components:(D.components||[]).map(H=>({productId:H.productId||H.id||"",qty:Number(H.qty)||0}))})),currentNames=currentSnapshot.map(D=>`${D.name} x${D.qty}`).join(", ")||"No item details",originalTotal=Number(saleData.total)||0;tx.update(saleRef,{status:"Voided",voidReason:cleanReason,voidedBy:actor,voidedById:actorId,voidedByRole:actorRole,voidedAt:voidedAt,voidedItems:currentSnapshot,voidedItemNames:currentNames,voidedOriginalTotal:originalTotal,inventoryRestored:!0,inventoryRestoredAt:voidedAt,inventoryRestoredBy:actor,inventoryRestoreDetails:restored,inventoryRestoreMissing:missing,salesReversed:!0,salesReversedAt:voidedAt,reversedAmount:originalTotal});return{saleData,restored,missing,currentNames,originalTotal}});if(result.restored.length){const logBatch=$.batch();result.restored.forEach(D=>{const H=$.collection("inventory_logs").doc();logBatch.set(H,{productId:D.productId,productName:D.productName,sku:D.sku||"",type:"Add",qty:D.qty,qtyChange:D.qty,reason:`Void inventory restoration - ${result.saleData.ref||s.id}`,ref:result.saleData.ref||s.id,beforeStock:null,afterStock:null,timestamp:voidedAt,by:actor,source:"VOID_TRANSACTION"})});await logBatch.commit()}if(result.saleData.ref){const payrollSnap=await $.collection("payroll_logs").where("refJob","==",result.saleData.ref).get();if(!payrollSnap.empty){const payrollBatch=$.batch();payrollSnap.docs.forEach(D=>payrollBatch.update(D.ref,{status:"Voided",voidReason:cleanReason,voidedAt:voidedAt,voidedBy:actor}));await payrollBatch.commit()}const creditSnap=await $.collection("customer_credits").where("refId","==",result.saleData.ref).get();if(!creditSnap.empty){const creditBatch=$.batch();creditSnap.docs.forEach(D=>creditBatch.update(D.ref,{status:"Voided",balance:0,voidReason:cleanReason,voidedAt:voidedAt,voidedBy:actor}));await creditBatch.commit()}}IMMS_logAudit&&IMMS_logAudit("VOID_TRANSACTION",`Voided ${result.saleData.ref||s.id} | Sales reversed: ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â±${result.originalTotal} | Inventory restored: ${result.restored.map(D=>`${D.productName} +${D.qty}`).join(", ")||"No stock items"} | By: ${actor} | Reason: ${cleanReason}`);const missingMsg=result.missing.length?` Some deleted/missing products could not be restored: ${result.missing.map(D=>D.productName).join(", ")}.`:"";q(`Transaction voided. ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â±${result.originalTotal.toLocaleString(void 0,{minimumFractionDigits:2})} removed from active sales and inventory restored.${missingMsg}`,result.missing.length?"warning":"success")}catch(err){console.error("Void reversal failed:",err),q(err&&err.message?err.message:"Unable to void the transaction. No inventory or sales changes were applied.","error")}};const askReason=()=>{const reason=window.prompt("Enter the reason for voiding this transaction:","Mistaken / cancelled transaction");reason!==null&&saveVoid(reason)};if(IMMS_prompt)IMMS_prompt(`Void transaction ${s.ref||""}? This will restore all stock items and remove the amount from active sales. Enter the reason below.`,saveVoid,"Mistaken / cancelled transaction",!0);else h?h(`Void transaction ${s.ref||""}? Stock will be restored and the sale will be reversed.`,askReason,!0):askReason()},f=()=>{const s=`Date,Code,Customer,Items,Amount,Method,Status,Sold By,Voided At,Voided By,Void Reason\n`,j=i.periodSales.map(H=>{var I;const M=(H.voidedItemNames||(H.voidedItems||H.items||[]).map(z=>`${z.name||"Unnamed item"} x${Number(z.qty)||1}`).join(" | ")||"").replace(/"/g,'""'),VR=String(H.voidReason||"").replace(/"/g,'""');return`"${new Date(H.timestamp).toLocaleString()}","${H.ref}","${H.customer}","${M}",${H.total},"${(I=H.paymentDetails)===null||I===void 0?void 0:I.mode}","${H.status}","${H.cashier||"System"}","${H.voidedAt?new Date(H.voidedAt).toLocaleString():""}","${H.voidedBy||""}","${VR}"`}).join(`\n`),c=new Blob([s+j],{type:"text/csv"}),E=window.URL.createObjectURL(c),D=document.createElement("a");D.href=E,D.download=`Sales_Log_${L}.csv`,D.click()},_=i.periodSales.filter(s=>{var j;const c=C==="All Status"?!0:C==="Active"?s.status!=="Voided":s.status==="Voided",E=(s.items||[]).some(I=>I.isService),D=t==="All Types"?!0:t==="Service"?E:!E,H=x==="All Method"?!0:((j=s.paymentDetails)===null||j===void 0?void 0:j.mode)===x;return c&&D&&H});return React.createElement("div",{className:"h-full flex flex-col gap-4 animate-fade-in text-slate-200 relative"},React.createElement("div",{className:"bg-[#151a27] border border-[#2d3748] rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4 shadow-sm shrink-0"},React.createElement("div",{className:"flex bg-[#0f1522] border border-[#2d3748] rounded-lg p-1"},["Daily","Monthly","Annual"].map(s=>React.createElement("button",{key:s,onClick:()=>p(s),className:`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${A===s?"bg-orange-600 text-white":"text-slate-500 hover:text-slate-300"}`},s))),React.createElement("div",{className:"flex gap-2 items-center"},React.createElement("input",{
 type:A==="Daily"?"date":A==="Monthly"?"month":"number",value:A==="Annual"?L.slice(0,4):A==="Monthly"?L.slice(0,7):L,onChange:s=>{let j=s.target.value;A==="Annual"?j=`${j}-01-01`:A==="Monthly"&&(j=`${j}-01`),b(j)},className:"bg-[#0f1522] border border-[#2d3748] text-white text-xs font-bold px-3 py-2 rounded-lg outline-none focus:border-blue-500 transition-colors [color-scheme:dark]"}),React.createElement("button",{className:"bg-transparent border border-blue-500/50 hover:bg-blue-500/10 text-blue-400 text-xs font-bold px-4 py-2 rounded-lg transition-colors flex items-center gap-2"},React.createElement("i",{className:"fas fa-sync-alt"})," Refresh"))),React.createElement("div",{className:"grid grid-cols-1 md:grid-cols-4 gap-3 shrink-0"},React.createElement("div",{className:"bg-[#151a27] border border-[#2d3748] p-4 flex items-center gap-4 shadow-sm imms-sales-card"},React.createElement("div",{className:"w-10 h-10 rounded-lg bg-orange-500/10 text-orange-500 flex items-center justify-center text-lg border border-orange-500/20"},React.createElement("i",{className:"fas fa-shopping-cart"})),React.createElement("div",null,React.createElement("p",{className:"text-[9px] font-bold text-slate-400 uppercase tracking-widest"},"Product Sales"),React.createElement("h3",{className:"text-xl font-black text-white leading-tight"},"\u20B1",i.pSales.toLocaleString(void 0,{minimumFractionDigits:2})),React.createElement("p",{className:"text-[9px] text-slate-500"
 },i.productTransactions," transactions"))),React.createElement("div",{className:"bg-[#151a27] border border-[#2d3748] p-4 rounded-xl flex items-center gap-4 shadow-sm"},React.createElement("div",{className:"w-10 h-10 rounded-lg bg-green-500/10 text-green-500 flex items-center justify-center text-lg border border-green-500/20"},React.createElement("i",{className:"fas fa-wrench"})),React.createElement("div",null,React.createElement("p",{className:"text-[9px] font-bold text-slate-400 uppercase tracking-widest"},"Service Revenue"),React.createElement("h3",{className:"text-xl font-black text-white leading-tight"},"\u20B1",i.sRev.toLocaleString(void 0,{minimumFractionDigits:2})),React.createElement("p",{className:"text-[9px] text-slate-500"},i.serviceJobs," jobs"))),React.createElement("div",{className:"bg-[#151a27] border border-[#2d3748] p-4 rounded-xl flex items-center gap-4 shadow-sm"},React.createElement("div",{className:"w-10 h-10 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center text-lg border border-blue-500/20"},React.createElement("i",{className:"fas fa-chart-line"})),React.createElement("div",null,React.createElement("p",{className:"text-[9px] font-bold text-slate-400 uppercase tracking-widest"},"Combined Total"),React.createElement("h3",{className:"text-xl font-black text-white leading-tight"},"\u20B1",i.combinedTotal.toLocaleString(void 0,{
 minimumFractionDigits:2})),React.createElement("p",{className:"text-[9px] text-slate-500"},"today"))),React.createElement("div",{className:"bg-[#151a27] border border-[#2d3748] p-4 rounded-xl flex items-center gap-4 shadow-sm"},React.createElement("div",{className:"w-10 h-10 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center text-lg border border-amber-500/20"},React.createElement("i",{className:"fas fa-store"})),React.createElement("div",null,React.createElement("p",{className:"text-[9px] font-bold text-slate-400 uppercase tracking-widest"},"Shop Share"),React.createElement("h3",{className:"text-xl font-black text-white leading-tight"},"\u20B1",i.sShare.toLocaleString(void 0,{minimumFractionDigits:2})),React.createElement("p",{className:"text-[9px] text-slate-500"},"shop share (per mechanic %)")))),React.createElement("div",{className:"grid grid-cols-1 md:grid-cols-4 gap-3 shrink-0"},React.createElement("div",{className:"bg-[#151a27] border border-red-500/30 p-3 rounded-xl flex flex-col items-center justify-center shadow-sm"},React.createElement("p",{className:"text-[10px] font-bold text-slate-400 uppercase"},React.createElement("i",{className:"fas fa-ban text-red-500 mr-1"})," Voided"),React.createElement("h3",{className:"text-xl font-black text-red-500"},i.voids)),React.createElement("div",{className:"bg-[#151a27] border border-yellow-500/30 p-3 rounded-xl flex flex-col items-center justify-center shadow-sm"
