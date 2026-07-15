@@ -2888,6 +2888,15 @@ function IMMS_CRM_TransactionModal({ transaction: t, products: productsList, onC
 
   const date = t.timestamp || t.createdAt || t.completedAt || t.date || t.updatedAt;
   const customer = t.customer || t.customerName || t.fullName || t.clientName || "—";
+  const mechanic = IMMS_CRM__cleanText(
+    t.mechanicName ||
+    t.assignedMechanic ||
+    t.assignedMechanicName ||
+    t.technicianName ||
+    t.mechanic ||
+    t.mechanicId ||
+    ""
+  );
   const amount =
     t.total != null
       ? t.total
@@ -2902,6 +2911,7 @@ function IMMS_CRM_TransactionModal({ transaction: t, products: productsList, onC
     ["Source", t.source || t.__crmSource || "sales"],
     ["Date", date],
     ["Customer Name", customer],
+    ...(isService && mechanic ? [["Mechanic", mechanic]] : []),
     ["Total", amount != null ? IMMS_CRM__money(amount) : "—"],
   ];
 
