@@ -2675,28 +2675,33 @@ function IMMS_CRM__asDate(v) {
 function IMMS_CRM__cleanText(v) {
   if (v === void 0 || v === null) return "";
   let s = String(v);
-  return s
-    .replace(/Ã‚/g, "")
-    .replace(/Ã¢â‚¬â„¢|Ã¢â‚¬Ëœ/g, "'")
-    .replace(/Ã¢â‚¬Å“|Ã¢â‚¬\x9d|Ã¢â‚¬Â/g, '"')
-    .replace(/Ã¢â‚¬â€œ|Ã¢â‚¬â€|Ã¢â‚¬"|Ã¢â‚¬/g, "â€”")
-    .replace(/Ã¢â‚¬Â¢/g, "â€¢")
-    .replace(/ÃƒÂ±/g, "Ã±")
-    .replace(/Ãƒâ€˜/g, "Ã‘")
-    .replace(/\s+/g, " ")
-    .trim();
+  const replacements = [
+    [/\u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u2026\u00c2\u00a1\u00c3\u201a\u00c2\u00b1/g, "PHP "],
+    [/\u00e2\u201a\u00b1/g, "PHP "],
+    [/\u00e2\u20ac\u00a2/g, " - "],
+    [/\u00e2\u20ac\u201d|\u00e2\u20ac\u201c/g, "-"],
+    [/\u00e2\u20ac\u2122|\u00e2\u20ac\u02dc/g, "'"],
+    [/\u00e2\u20ac\u0153|\u00e2\u20ac\u009d/g, "\""],
+    [/\u00c3\u00b1/g, "n"],
+    [/\u00c3\u2018/g, "N"],
+    [/\u00c2/g, ""]
+  ];
+  replacements.forEach(function(pair) {
+    s = s.replace(pair[0], pair[1]);
+  });
+  return s.replace(/\s+/g, " ").trim();
 }
 
 function IMMS_CRM__isPlaceholderValue(v) {
   if (v === void 0 || v === null || v === "") return true;
   const s = IMMS_CRM__cleanText(v);
   if (!s) return true;
-  return /^(?:â€”|-|n\/a|na|null|undefined)$/i.test(s);
+  return /^(?:—|-|n\/a|na|null|undefined)$/i.test(s);
 }
 
 function IMMS_CRM__titleCase(v) {
   const s = IMMS_CRM__cleanText(v);
-  if (!s) return "â€”";
+  if (!s) return "—";
   return s
     .split(/[_\s-]+/)
     .filter(Boolean)
@@ -2721,13 +2726,13 @@ function IMMS_CRM__labelizeKey(key) {
 
 function IMMS_CRM__sanitizeForDisplay(value, depth) {
   if (depth === void 0) depth = 0;
-  if (value === void 0 || value === null || value === "") return "â€”";
+  if (value === void 0 || value === null || value === "") return "—";
   if (typeof value === "string") {
     if (/^data:image\//i.test(value)) return "[Image data hidden]";
     const cleaned = IMMS_CRM__cleanText(value);
-    if (!cleaned) return "â€”";
+    if (!cleaned) return "—";
     if (cleaned.length > 280 && /^([A-Za-z0-9+/=\-_.:,;])+$/i.test(cleaned)) {
-      return cleaned.slice(0, 120) + " â€¦";
+      return cleaned.slice(0, 120) + " ...";
     }
     return cleaned;
   }
@@ -2771,7 +2776,7 @@ function IMMS_CRM__sanitizeForDisplay(value, depth) {
 
 function IMMS_CRM__formatValue(v) {
   const clean = IMMS_CRM__sanitizeForDisplay(v);
-  if (clean === void 0 || clean === null || clean === "") return "â€”";
+  if (clean === void 0 || clean === null || clean === "") return "—";
   if (typeof clean === "number") return String(clean);
   if (typeof clean === "string") return clean;
   try {
@@ -2784,16 +2789,16 @@ function IMMS_CRM__formatValue(v) {
 function IMMS_CRM__money(v) {
   const n = Number(v);
   return Number.isFinite(n)
-    ? "â‚±" +
+    ? "PHP " +
         n.toLocaleString("en-PH", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         })
-    : "â€”";
+    : "—";
 }
 
 function IMMS_CRM__paymentType(t) {
-  if (!t) return "â€”";
+  if (!t) return "—";
   const pd = t.paymentDetails || {};
   const raw =
     pd.mode ||
@@ -2804,7 +2809,7 @@ function IMMS_CRM__paymentType(t) {
     t.mode ||
     t.type;
   const s = IMMS_CRM__cleanText(raw);
-  if (!s) return "â€”";
+  if (!s) return "—";
   const lower = s.toLowerCase();
   if (lower === "gcash") return "GCash";
   if (lower === "paymaya") return "PayMaya";
@@ -2831,7 +2836,7 @@ function IMMS_CRM__paymentInfoRows(t) {
   pushRow("Split PayMaya", pd.splitPaymaya || pd.splitPayMaya, IMMS_CRM__money);
   pushRow("Split Bank", pd.splitBank, IMMS_CRM__money);
   return rows.filter(function(entry, index, arr) {
-    return entry[1] !== "â€”" && arr.findIndex(function(x){ return x[0] === entry[0]; }) === index;
+    return entry[1] !== "—" && arr.findIndex(function(x){ return x[0] === entry[0]; }) === index;
   });
 }
 
@@ -2879,10 +2884,10 @@ function IMMS_CRM_TransactionModal({ transaction: t, products: productsList, onC
     t.jobOrderNo ||
     t.code ||
     t.id ||
-    "â€”";
+    "—";
 
   const date = t.timestamp || t.createdAt || t.completedAt || t.date || t.updatedAt;
-  const customer = t.customer || t.customerName || t.fullName || t.clientName || "â€”";
+  const customer = t.customer || t.customerName || t.fullName || t.clientName || "—";
   const amount =
     t.total != null
       ? t.total
@@ -2897,7 +2902,7 @@ function IMMS_CRM_TransactionModal({ transaction: t, products: productsList, onC
     ["Source", t.source || t.__crmSource || "sales"],
     ["Date", date],
     ["Customer Name", customer],
-    ["Total", amount != null ? IMMS_CRM__money(amount) : "â€”"],
+    ["Total", amount != null ? IMMS_CRM__money(amount) : "—"],
   ];
 
   const productIndex = {};
@@ -2953,7 +2958,7 @@ function IMMS_CRM_TransactionModal({ transaction: t, products: productsList, onC
     return {
       key: (line && (line.id || line.productId || line.sku || line.name)) || ("line-" + index),
       name: name,
-      subtitle: subtitleBits.join(" â€¢ "),
+      subtitle: subtitleBits.join(" / "),
       qty: qty,
       unitPrice: unitPrice,
       totalPrice: totalPrice,
@@ -3222,7 +3227,7 @@ onClick:()=>{f(null),j(_),i(!0)},className:"w-full mt-6 py-2 border border-amber
             "text-[10px] text-slate-500 dark:text-slate-400",
         },
         (a.items || []).length,
-        " items â€¢ Click for complete details"
+        " items - Click for details"
       )
     ),
     React.createElement(
@@ -3318,7 +3323,7 @@ className:"flex-1 overflow-auto hide-scrollbar"},React.createElement("table",{cl
 className:"bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-2 py-1 rounded text-xs font-bold"},new Date(P.timeIn).toLocaleTimeString()):"-"),React.createElement("td",{className:"p-4"},P.timeOut?React.createElement("span",{className:"bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 px-2 py-1 rounded text-xs font-bold"},new Date(P.timeOut).toLocaleTimeString()):React.createElement("span",{className:"text-amber-500 text-xs font-bold italic"},"Active")),React.createElement("td",{className:"p-4 font-bold text-blue-600 dark:text-blue-400"},g(P.timeIn,P.timeOut)),React.createElement("td",{className:"p-4 text-right space-x-3"},React.createElement("button",{onClick:()=>u(P),className:"text-blue-500 hover:text-blue-700 transition-colors hover:scale-110"},React.createElement("i",{className:"fas fa-edit"})),React.createElement("button",{onClick:()=>w(P.id),className:"text-red-500 hover:text-red-700 transition-colors hover:scale-110"},React.createElement("i",{className:"fas fa-trash"}))))),V.length===0&&React.createElement("tr",null,React.createElement("td",{colSpan:"6",className:"text-center text-slate-500 py-10"},"No attendance logs found.")))))),b&&React.createElement("div",{className:"fixed inset-0 modal-overlay z-[100] flex items-center justify-center p-4"},React.createElement("form",{onSubmit:x,
 className:"bg-white dark:bg-slate-900 rounded-xl w-full max-w-sm shadow-2xl flex flex-col border border-slate-200 dark:border-slate-700 transition-colors duration-300 animate-scale-in"},React.createElement("div",{className:"p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-[#0f1522] rounded-t-xl"},React.createElement("h3",{className:"font-bold text-lg text-slate-800 dark:text-white"},React.createElement("i",{className:"fas fa-user-edit text-blue-500 mr-2"}),"Edit Attendance Record"),React.createElement("button",{type:"button",onClick:()=>k(!1),className:"text-slate-500 hover:text-red-500 transition-colors"},React.createElement("i",{className:"fas fa-times"}))),React.createElement("div",{className:"p-5 space-y-4"},React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-slate-600 dark:text-slate-400 mb-1 block uppercase"},"Record Date"),React.createElement("input",{required:!0,type:"date",value:T.date,onChange:P=>C({...T,date:P.target.value}),className:"w-full p-2.5 border rounded-lg input-dark text-sm outline-none focus:border-blue-500 transition-colors"})),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-green-600 dark:text-green-500 mb-1 block uppercase"},"Time IN"),React.createElement("input",{type:"time",value:T.timeIn,onChange:P=>C({...T,timeIn:P.target.value}),
 className:"w-full p-2.5 border rounded-lg input-dark text-sm outline-none focus:border-green-500 transition-colors"})),React.createElement("div",null,React.createElement("label",{className:"text-xs font-bold text-red-600 dark:text-red-500 mb-1 block uppercase"},"Time OUT"),React.createElement("input",{type:"time",value:T.timeOut,onChange:P=>C({...T,timeOut:P.target.value}),className:"w-full p-2.5 border rounded-lg input-dark text-sm outline-none focus:border-red-500 transition-colors"}))),React.createElement("div",{className:"p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0f1522] rounded-b-xl flex gap-2 justify-end transition-colors duration-300"},React.createElement("button",{type:"button",onClick:()=>k(!1),className:"px-4 py-2 font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white"},"Cancel"),React.createElement("button",{type:"submit",className:"bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded-lg shadow transition-all hover:-translate-y-0.5"},"Update Record")))))}function AnalyticsView({sales:B,expenses:V,payrollLogs:F,employees:U,db:$,notify:q,requestAction:h,requestPrompt:IMMS_prompt,user:IMMS_user,logAudit:IMMS_logAudit}){const[A,p]=useState("Daily"),[L,b]=useState(IMMS_LOCAL_DATE()),[k,T]=useState(!1),[C,O]=useState("All Status"),[t,w]=useState("All Types"),[x,u]=useState("All Method"),g=useRef(null),P=useRef(null),i=useMemo(()=>{const base=IMMS__computePeriodFinance({sales:B,expenses:V,payrollLogs:F,employees:U,periodMode:A,selectedDate:L});return{pSales:base.productSales,sRev:base.serviceRevenue,combinedTotal:base.combinedTotal,cogs:base.cogs,mPay:base.mechanicPay,sShare:base.shopShare,voids:base.voids,voidAmt:base.voidAmt,pProfit:base.productProfit,combinedProfit:base.shopRevenue,opEx:base.totalExpenses,netProfit:base.netProfit,roi:base.roi,roiBase:base.roiBase,roiOnExpenses:base.totalExpenses>0,periodSales:base.periodSales,voidedSalesList:base.voidedSalesList,mechanics:base.mechanics,serviceJobs:base.serviceJobs,productTransactions:base.productTransactions,combinedJobs:base.combinedJobs}},[B,V,F,U,A,L]);useEffect(()=>{if(!window.Chart||!g.current)return;P.current&&P.current.destroy();let s=[],j=[];if(A==="Daily"){let D=Array(24).fill(0);i.periodSales.forEach(H=>{if(H.status!=="Voided"){
-const I=new Date(H.timestamp).getHours();D[I]+=H.total||0}}),s=["00:00","03:00","06:00","09:00","12:00","15:00","18:00","21:00"],j=[D[0],D[3],D[6],D[9],D[12],D[15],D[18],D[21]]}else if(A==="Monthly"){let D=new Date(L.slice(0,4),L.slice(5,7),0).getDate(),H=Array(D).fill(0);i.periodSales.forEach(I=>{if(I.status!=="Voided"){const M=new Date(I.timestamp).getDate();H[M-1]+=I.total||0}});for(let I=1;I<=D;I+=3)s.push(I),j.push(H[I-1])}else{let D=Array(12).fill(0);i.periodSales.forEach(H=>{if(H.status!=="Voided"){const I=new Date(H.timestamp).getMonth();D[I]+=H.total||0}}),s=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],j=D}let E=g.current.getContext("2d").createLinearGradient(0,0,0,400);return E.addColorStop(0,"rgba(249, 115, 22, 0.5)"),E.addColorStop(1,"rgba(249, 115, 22, 0.0)"),P.current=new window.Chart(g.current,{type:"line",data:{labels:s,datasets:[{data:j,borderColor:"#f97316",backgroundColor:E,borderWidth:2,pointRadius:3,pointBackgroundColor:"#f97316",fill:!0,tension:.4}]},options:{responsive:!0,maintainAspectRatio:!1,plugins:{legend:{display:!1}},scales:{x:{grid:{color:"rgba(255,255,255,0.05)"},ticks:{color:"#64748b",font:{size:10}}},y:{grid:{color:"rgba(255,255,255,0.05)"},ticks:{color:"#64748b",font:{size:10},callback:D=>"\u20B1"+D},beginAtZero:!0}}}}),()=>{P.current&&P.current.destroy()}},[i,A,L]);const S=s=>{if(!s||!s.id)return;const actor=String(IMMS_user&&(IMMS_user.name||IMMS_user.username||IMMS_user.email)||"System"),actorId=String(IMMS_user&&(IMMS_user.id||IMMS_user.username||IMMS_user.email)||"system"),actorRole=String(IMMS_user&&(IMMS_user.role||IMMS_user.position)||""),itemSnapshot=(s.items||[]).map(D=>({id:D.id||"",productId:D.productId||"",sku:D.sku||"",name:String(D.name||"Unnamed item"),qty:Number(D.qty)||1,price:Number(D.price)||0,isService:!!D.isService,isBundle:!!D.isBundle,components:(D.components||[]).map(H=>({productId:H.productId||H.id||"",qty:Number(H.qty)||0}))})),itemNames=itemSnapshot.map(D=>`${D.name} x${D.qty}`).join(", ")||"No item details";const saveVoid=async reason=>{const cleanReason=String(reason||"Mistaken / cancelled transaction").trim()||"Mistaken / cancelled transaction",voidedAt=(new Date).toISOString(),saleRef=$.collection("sales").doc(s.id),skuFallback={};try{for(const D of s.items||[]){if(D.isService||D.isBundle||D.id||D.productId||!D.sku)continue;const H=await $.collection("products").where("sku","==",String(D.sku)).limit(1).get();H.empty||(skuFallback[String(D.sku)]=H.docs[0].id)}const result=await $.runTransaction(async tx=>{const saleSnap=await tx.get(saleRef);if(!saleSnap.exists)throw new Error("Transaction no longer exists.");const saleData={id:saleSnap.id,...saleSnap.data()};if(saleData.status==="Voided"||saleData.inventoryRestored===!0)throw new Error("This transaction is already voided and cannot be restored twice.");const saleItems=Array.isArray(saleData.items)?saleData.items:[],restoreMap={},restoreLabels={};saleItems.forEach(D=>{const H=Math.max(0,Number(D.qty)||1);if(D.isService)return;if(D.isBundle){(D.components||[]).forEach(I=>{const M=String(I.productId||I.id||"").trim(),z=Math.max(0,Number(I.qty)||0)*H;if(M&&z>0)restoreMap[M]=(restoreMap[M]||0)+z,restoreLabels[M]=String(I.name||D.name||"Bundle component")})}else{const I=String(D.productId||D.id||skuFallback[String(D.sku||"")]||"").trim(),M=H;if(I&&M>0)restoreMap[I]=(restoreMap[I]||0)+M,restoreLabels[I]=String(D.name||"Product")}});const productIds=Object.keys(restoreMap),productRefs=productIds.map(D=>$.collection("products").doc(D)),productSnaps=await Promise.all(productRefs.map(D=>tx.get(D))),restored=[],missing=[];productSnaps.forEach((D,H)=>{const I=productIds[H],M=Number(restoreMap[I])||0;if(D.exists&&M>0){const z=D.data()||{};tx.update(productRefs[H],{stock:firebase.firestore.FieldValue.increment(M),updatedAt:firebase.firestore.FieldValue.serverTimestamp()});restored.push({productId:I,productName:z.name||restoreLabels[I]||"Product",sku:z.sku||"",qty:M})}else M>0&&missing.push({productId:I,productName:restoreLabels[I]||"Product",qty:M})});const currentSnapshot=saleItems.map(D=>({id:D.id||"",productId:D.productId||"",sku:D.sku||"",name:String(D.name||"Unnamed item"),qty:Number(D.qty)||1,price:Number(D.price)||0,isService:!!D.isService,isBundle:!!D.isBundle,components:(D.components||[]).map(H=>({productId:H.productId||H.id||"",qty:Number(H.qty)||0}))})),currentNames=currentSnapshot.map(D=>`${D.name} x${D.qty}`).join(", ")||"No item details",originalTotal=Number(saleData.total)||0;tx.update(saleRef,{status:"Voided",voidReason:cleanReason,voidedBy:actor,voidedById:actorId,voidedByRole:actorRole,voidedAt:voidedAt,voidedItems:currentSnapshot,voidedItemNames:currentNames,voidedOriginalTotal:originalTotal,inventoryRestored:!0,inventoryRestoredAt:voidedAt,inventoryRestoredBy:actor,inventoryRestoreDetails:restored,inventoryRestoreMissing:missing,salesReversed:!0,salesReversedAt:voidedAt,reversedAmount:originalTotal});return{saleData,restored,missing,currentNames,originalTotal}});if(result.restored.length){const logBatch=$.batch();result.restored.forEach(D=>{const H=$.collection("inventory_logs").doc();logBatch.set(H,{productId:D.productId,productName:D.productName,sku:D.sku||"",type:"Add",qty:D.qty,qtyChange:D.qty,reason:`Void inventory restoration - ${result.saleData.ref||s.id}`,ref:result.saleData.ref||s.id,beforeStock:null,afterStock:null,timestamp:voidedAt,by:actor,source:"VOID_TRANSACTION"})});await logBatch.commit()}if(result.saleData.ref){const payrollSnap=await $.collection("payroll_logs").where("refJob","==",result.saleData.ref).get();if(!payrollSnap.empty){const payrollBatch=$.batch();payrollSnap.docs.forEach(D=>payrollBatch.update(D.ref,{status:"Voided",voidReason:cleanReason,voidedAt:voidedAt,voidedBy:actor}));await payrollBatch.commit()}const creditSnap=await $.collection("customer_credits").where("refId","==",result.saleData.ref).get();if(!creditSnap.empty){const creditBatch=$.batch();creditSnap.docs.forEach(D=>creditBatch.update(D.ref,{status:"Voided",balance:0,voidReason:cleanReason,voidedAt:voidedAt,voidedBy:actor}));await creditBatch.commit()}}IMMS_logAudit&&IMMS_logAudit("VOID_TRANSACTION",`Voided ${result.saleData.ref||s.id} | Sales reversed: ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â±${result.originalTotal} | Inventory restored: ${result.restored.map(D=>`${D.productName} +${D.qty}`).join(", ")||"No stock items"} | By: ${actor} | Reason: ${cleanReason}`);const missingMsg=result.missing.length?` Some deleted/missing products could not be restored: ${result.missing.map(D=>D.productName).join(", ")}.`:"";q(`Transaction voided. ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â±${result.originalTotal.toLocaleString(void 0,{minimumFractionDigits:2})} removed from active sales and inventory restored.${missingMsg}`,result.missing.length?"warning":"success")}catch(err){console.error("Void reversal failed:",err),q(err&&err.message?err.message:"Unable to void the transaction. No inventory or sales changes were applied.","error")}};const askReason=()=>{const reason=window.prompt("Enter the reason for voiding this transaction:","Mistaken / cancelled transaction");reason!==null&&saveVoid(reason)};if(IMMS_prompt)IMMS_prompt(`Void transaction ${s.ref||""}? This will restore all stock items and remove the amount from active sales. Enter the reason below.`,saveVoid,"Mistaken / cancelled transaction",!0);else h?h(`Void transaction ${s.ref||""}? Stock will be restored and the sale will be reversed.`,askReason,!0):askReason()},f=()=>{const s=`Date,Code,Customer,Items,Amount,Method,Status,Sold By,Voided At,Voided By,Void Reason\n`,j=i.periodSales.map(H=>{var I;const M=(H.voidedItemNames||(H.voidedItems||H.items||[]).map(z=>`${z.name||"Unnamed item"} x${Number(z.qty)||1}`).join(" | ")||"").replace(/"/g,'""'),VR=String(H.voidReason||"").replace(/"/g,'""');return`"${new Date(H.timestamp).toLocaleString()}","${H.ref}","${H.customer}","${M}",${H.total},"${(I=H.paymentDetails)===null||I===void 0?void 0:I.mode}","${H.status}","${H.cashier||"System"}","${H.voidedAt?new Date(H.voidedAt).toLocaleString():""}","${H.voidedBy||""}","${VR}"`}).join(`\n`),c=new Blob([s+j],{type:"text/csv"}),E=window.URL.createObjectURL(c),D=document.createElement("a");D.href=E,D.download=`Sales_Log_${L}.csv`,D.click()},_=i.periodSales.filter(s=>{var j;const c=C==="All Status"?!0:C==="Active"?s.status!=="Voided":s.status==="Voided",E=(s.items||[]).some(I=>I.isService),D=t==="All Types"?!0:t==="Service"?E:!E,H=x==="All Method"?!0:((j=s.paymentDetails)===null||j===void 0?void 0:j.mode)===x;return c&&D&&H});return React.createElement("div",{className:"h-full flex flex-col gap-4 animate-fade-in text-slate-200 relative"},React.createElement("div",{className:"bg-[#151a27] border border-[#2d3748] rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4 shadow-sm shrink-0"},React.createElement("div",{className:"flex bg-[#0f1522] border border-[#2d3748] rounded-lg p-1"},["Daily","Monthly","Annual"].map(s=>React.createElement("button",{key:s,onClick:()=>p(s),className:`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${A===s?"bg-orange-600 text-white":"text-slate-500 hover:text-slate-300"}`},s))),React.createElement("div",{className:"flex gap-2 items-center"},React.createElement("input",{
+const I=new Date(H.timestamp).getHours();D[I]+=H.total||0}}),s=["00:00","03:00","06:00","09:00","12:00","15:00","18:00","21:00"],j=[D[0],D[3],D[6],D[9],D[12],D[15],D[18],D[21]]}else if(A==="Monthly"){let D=new Date(L.slice(0,4),L.slice(5,7),0).getDate(),H=Array(D).fill(0);i.periodSales.forEach(I=>{if(I.status!=="Voided"){const M=new Date(I.timestamp).getDate();H[M-1]+=I.total||0}});for(let I=1;I<=D;I+=3)s.push(I),j.push(H[I-1])}else{let D=Array(12).fill(0);i.periodSales.forEach(H=>{if(H.status!=="Voided"){const I=new Date(H.timestamp).getMonth();D[I]+=H.total||0}}),s=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],j=D}let E=g.current.getContext("2d").createLinearGradient(0,0,0,400);return E.addColorStop(0,"rgba(249, 115, 22, 0.5)"),E.addColorStop(1,"rgba(249, 115, 22, 0.0)"),P.current=new window.Chart(g.current,{type:"line",data:{labels:s,datasets:[{data:j,borderColor:"#f97316",backgroundColor:E,borderWidth:2,pointRadius:3,pointBackgroundColor:"#f97316",fill:!0,tension:.4}]},options:{responsive:!0,maintainAspectRatio:!1,plugins:{legend:{display:!1}},scales:{x:{grid:{color:"rgba(255,255,255,0.05)"},ticks:{color:"#64748b",font:{size:10}}},y:{grid:{color:"rgba(255,255,255,0.05)"},ticks:{color:"#64748b",font:{size:10},callback:D=>"\u20B1"+D},beginAtZero:!0}}}}),()=>{P.current&&P.current.destroy()}},[i,A,L]);const S=s=>{if(!s||!s.id)return;const actor=String(IMMS_user&&(IMMS_user.name||IMMS_user.username||IMMS_user.email)||"System"),actorId=String(IMMS_user&&(IMMS_user.id||IMMS_user.username||IMMS_user.email)||"system"),actorRole=String(IMMS_user&&(IMMS_user.role||IMMS_user.position)||""),itemSnapshot=(s.items||[]).map(D=>({id:D.id||"",productId:D.productId||"",sku:D.sku||"",name:String(D.name||"Unnamed item"),qty:Number(D.qty)||1,price:Number(D.price)||0,isService:!!D.isService,isBundle:!!D.isBundle,components:(D.components||[]).map(H=>({productId:H.productId||H.id||"",qty:Number(H.qty)||0}))})),itemNames=itemSnapshot.map(D=>`${D.name} x${D.qty}`).join(", ")||"No item details";const saveVoid=async reason=>{const cleanReason=String(reason||"Mistaken / cancelled transaction").trim()||"Mistaken / cancelled transaction",voidedAt=(new Date).toISOString(),saleRef=$.collection("sales").doc(s.id),skuFallback={};try{for(const D of s.items||[]){if(D.isService||D.isBundle||D.id||D.productId||!D.sku)continue;const H=await $.collection("products").where("sku","==",String(D.sku)).limit(1).get();H.empty||(skuFallback[String(D.sku)]=H.docs[0].id)}const result=await $.runTransaction(async tx=>{const saleSnap=await tx.get(saleRef);if(!saleSnap.exists)throw new Error("Transaction no longer exists.");const saleData={id:saleSnap.id,...saleSnap.data()};if(saleData.status==="Voided"||saleData.inventoryRestored===!0)throw new Error("This transaction is already voided and cannot be restored twice.");const saleItems=Array.isArray(saleData.items)?saleData.items:[],restoreMap={},restoreLabels={};saleItems.forEach(D=>{const H=Math.max(0,Number(D.qty)||1);if(D.isService)return;if(D.isBundle){(D.components||[]).forEach(I=>{const M=String(I.productId||I.id||"").trim(),z=Math.max(0,Number(I.qty)||0)*H;if(M&&z>0)restoreMap[M]=(restoreMap[M]||0)+z,restoreLabels[M]=String(I.name||D.name||"Bundle component")})}else{const I=String(D.productId||D.id||skuFallback[String(D.sku||"")]||"").trim(),M=H;if(I&&M>0)restoreMap[I]=(restoreMap[I]||0)+M,restoreLabels[I]=String(D.name||"Product")}});const productIds=Object.keys(restoreMap),productRefs=productIds.map(D=>$.collection("products").doc(D)),productSnaps=await Promise.all(productRefs.map(D=>tx.get(D))),restored=[],missing=[];productSnaps.forEach((D,H)=>{const I=productIds[H],M=Number(restoreMap[I])||0;if(D.exists&&M>0){const z=D.data()||{};tx.update(productRefs[H],{stock:firebase.firestore.FieldValue.increment(M),updatedAt:firebase.firestore.FieldValue.serverTimestamp()});restored.push({productId:I,productName:z.name||restoreLabels[I]||"Product",sku:z.sku||"",qty:M})}else M>0&&missing.push({productId:I,productName:restoreLabels[I]||"Product",qty:M})});const currentSnapshot=saleItems.map(D=>({id:D.id||"",productId:D.productId||"",sku:D.sku||"",name:String(D.name||"Unnamed item"),qty:Number(D.qty)||1,price:Number(D.price)||0,isService:!!D.isService,isBundle:!!D.isBundle,components:(D.components||[]).map(H=>({productId:H.productId||H.id||"",qty:Number(H.qty)||0}))})),currentNames=currentSnapshot.map(D=>`${D.name} x${D.qty}`).join(", ")||"No item details",originalTotal=Number(saleData.total)||0;tx.update(saleRef,{status:"Voided",voidReason:cleanReason,voidedBy:actor,voidedById:actorId,voidedByRole:actorRole,voidedAt:voidedAt,voidedItems:currentSnapshot,voidedItemNames:currentNames,voidedOriginalTotal:originalTotal,inventoryRestored:!0,inventoryRestoredAt:voidedAt,inventoryRestoredBy:actor,inventoryRestoreDetails:restored,inventoryRestoreMissing:missing,salesReversed:!0,salesReversedAt:voidedAt,reversedAmount:originalTotal});return{saleData,restored,missing,currentNames,originalTotal}});if(result.restored.length){const logBatch=$.batch();result.restored.forEach(D=>{const H=$.collection("inventory_logs").doc();logBatch.set(H,{productId:D.productId,productName:D.productName,sku:D.sku||"",type:"Add",qty:D.qty,qtyChange:D.qty,reason:`Void inventory restoration - ${result.saleData.ref||s.id}`,ref:result.saleData.ref||s.id,beforeStock:null,afterStock:null,timestamp:voidedAt,by:actor,source:"VOID_TRANSACTION"})});await logBatch.commit()}if(result.saleData.ref){const payrollSnap=await $.collection("payroll_logs").where("refJob","==",result.saleData.ref).get();if(!payrollSnap.empty){const payrollBatch=$.batch();payrollSnap.docs.forEach(D=>payrollBatch.update(D.ref,{status:"Voided",voidReason:cleanReason,voidedAt:voidedAt,voidedBy:actor}));await payrollBatch.commit()}const creditSnap=await $.collection("customer_credits").where("refId","==",result.saleData.ref).get();if(!creditSnap.empty){const creditBatch=$.batch();creditSnap.docs.forEach(D=>creditBatch.update(D.ref,{status:"Voided",balance:0,voidReason:cleanReason,voidedAt:voidedAt,voidedBy:actor}));await creditBatch.commit()}}IMMS_logAudit&&IMMS_logAudit("VOID_TRANSACTION",`Voided ${result.saleData.ref||s.id} | Sales reversed: PHP ${result.originalTotal} | Inventory restored: ${result.restored.map(D=>`${D.productName} +${D.qty}`).join(", ")||"No stock items"} | By: ${actor} | Reason: ${cleanReason}`);const missingMsg=result.missing.length?` Some deleted/missing products could not be restored: ${result.missing.map(D=>D.productName).join(", ")}.`:"";q(`Transaction voided. PHP ${result.originalTotal.toLocaleString(void 0,{minimumFractionDigits:2})} removed from active sales and inventory restored.${missingMsg}`,result.missing.length?"warning":"success")}catch(err){console.error("Void reversal failed:",err),q(err&&err.message?err.message:"Unable to void the transaction. No inventory or sales changes were applied.","error")}};const askReason=()=>{const reason=window.prompt("Enter the reason for voiding this transaction:","Mistaken / cancelled transaction");reason!==null&&saveVoid(reason)};if(IMMS_prompt)IMMS_prompt(`Void transaction ${s.ref||""}? This will restore all stock items and remove the amount from active sales. Enter the reason below.`,saveVoid,"Mistaken / cancelled transaction",!0);else h?h(`Void transaction ${s.ref||""}? Stock will be restored and the sale will be reversed.`,askReason,!0):askReason()},f=()=>{const s=`Date,Code,Customer,Items,Amount,Method,Status,Sold By,Voided At,Voided By,Void Reason\n`,j=i.periodSales.map(H=>{var I;const M=(H.voidedItemNames||(H.voidedItems||H.items||[]).map(z=>`${z.name||"Unnamed item"} x${Number(z.qty)||1}`).join(" | ")||"").replace(/"/g,'""'),VR=String(H.voidReason||"").replace(/"/g,'""');return`"${new Date(H.timestamp).toLocaleString()}","${H.ref}","${H.customer}","${M}",${H.total},"${(I=H.paymentDetails)===null||I===void 0?void 0:I.mode}","${H.status}","${H.cashier||"System"}","${H.voidedAt?new Date(H.voidedAt).toLocaleString():""}","${H.voidedBy||""}","${VR}"`}).join(`\n`),c=new Blob([s+j],{type:"text/csv"}),E=window.URL.createObjectURL(c),D=document.createElement("a");D.href=E,D.download=`Sales_Log_${L}.csv`,D.click()},_=i.periodSales.filter(s=>{var j;const c=C==="All Status"?!0:C==="Active"?s.status!=="Voided":s.status==="Voided",E=(s.items||[]).some(I=>I.isService),D=t==="All Types"?!0:t==="Service"?E:!E,H=x==="All Method"?!0:((j=s.paymentDetails)===null||j===void 0?void 0:j.mode)===x;return c&&D&&H});return React.createElement("div",{className:"h-full flex flex-col gap-4 animate-fade-in text-slate-200 relative"},React.createElement("div",{className:"bg-[#151a27] border border-[#2d3748] rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4 shadow-sm shrink-0"},React.createElement("div",{className:"flex bg-[#0f1522] border border-[#2d3748] rounded-lg p-1"},["Daily","Monthly","Annual"].map(s=>React.createElement("button",{key:s,onClick:()=>p(s),className:`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${A===s?"bg-orange-600 text-white":"text-slate-500 hover:text-slate-300"}`},s))),React.createElement("div",{className:"flex gap-2 items-center"},React.createElement("input",{
 type:A==="Daily"?"date":A==="Monthly"?"month":"number",value:A==="Annual"?L.slice(0,4):A==="Monthly"?L.slice(0,7):L,onChange:s=>{let j=s.target.value;A==="Annual"?j=`${j}-01-01`:A==="Monthly"&&(j=`${j}-01`),b(j)},className:"bg-[#0f1522] border border-[#2d3748] text-white text-xs font-bold px-3 py-2 rounded-lg outline-none focus:border-blue-500 transition-colors [color-scheme:dark]"}),React.createElement("button",{className:"bg-transparent border border-blue-500/50 hover:bg-blue-500/10 text-blue-400 text-xs font-bold px-4 py-2 rounded-lg transition-colors flex items-center gap-2"},React.createElement("i",{className:"fas fa-sync-alt"})," Refresh"))),React.createElement("div",{className:"grid grid-cols-1 md:grid-cols-4 gap-3 shrink-0"},React.createElement("div",{className:"bg-[#151a27] border border-[#2d3748] p-4 flex items-center gap-4 shadow-sm imms-sales-card"},React.createElement("div",{className:"w-10 h-10 rounded-lg bg-orange-500/10 text-orange-500 flex items-center justify-center text-lg border border-orange-500/20"},React.createElement("i",{className:"fas fa-shopping-cart"})),React.createElement("div",null,React.createElement("p",{className:"text-[9px] font-bold text-slate-400 uppercase tracking-widest"},"Product Sales"),React.createElement("h3",{className:"text-xl font-black text-white leading-tight"},"\u20B1",i.pSales.toLocaleString(void 0,{minimumFractionDigits:2})),React.createElement("p",{className:"text-[9px] text-slate-500"
 },i.productTransactions," transactions"))),React.createElement("div",{className:"bg-[#151a27] border border-[#2d3748] p-4 rounded-xl flex items-center gap-4 shadow-sm"},React.createElement("div",{className:"w-10 h-10 rounded-lg bg-green-500/10 text-green-500 flex items-center justify-center text-lg border border-green-500/20"},React.createElement("i",{className:"fas fa-wrench"})),React.createElement("div",null,React.createElement("p",{className:"text-[9px] font-bold text-slate-400 uppercase tracking-widest"},"Service Revenue"),React.createElement("h3",{className:"text-xl font-black text-white leading-tight"},"\u20B1",i.sRev.toLocaleString(void 0,{minimumFractionDigits:2})),React.createElement("p",{className:"text-[9px] text-slate-500"},i.serviceJobs," jobs"))),React.createElement("div",{className:"bg-[#151a27] border border-[#2d3748] p-4 rounded-xl flex items-center gap-4 shadow-sm"},React.createElement("div",{className:"w-10 h-10 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center text-lg border border-blue-500/20"},React.createElement("i",{className:"fas fa-chart-line"})),React.createElement("div",null,React.createElement("p",{className:"text-[9px] font-bold text-slate-400 uppercase tracking-widest"},"Combined Total"),React.createElement("h3",{className:"text-xl font-black text-white leading-tight"},"\u20B1",i.combinedTotal.toLocaleString(void 0,{
 minimumFractionDigits:2})),React.createElement("p",{className:"text-[9px] text-slate-500"},"today"))),React.createElement("div",{className:"bg-[#151a27] border border-[#2d3748] p-4 rounded-xl flex items-center gap-4 shadow-sm"},React.createElement("div",{className:"w-10 h-10 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center text-lg border border-amber-500/20"},React.createElement("i",{className:"fas fa-store"})),React.createElement("div",null,React.createElement("p",{className:"text-[9px] font-bold text-slate-400 uppercase tracking-widest"},"Shop Share"),React.createElement("h3",{className:"text-xl font-black text-white leading-tight"},"\u20B1",i.sShare.toLocaleString(void 0,{minimumFractionDigits:2})),React.createElement("p",{className:"text-[9px] text-slate-500"},"shop share (per mechanic %)")))),React.createElement("div",{className:"grid grid-cols-1 md:grid-cols-4 gap-3 shrink-0"},React.createElement("div",{className:"bg-[#151a27] border border-red-500/30 p-3 rounded-xl flex flex-col items-center justify-center shadow-sm"},React.createElement("p",{className:"text-[10px] font-bold text-slate-400 uppercase"},React.createElement("i",{className:"fas fa-ban text-red-500 mr-1"})," Voided"),React.createElement("h3",{className:"text-xl font-black text-red-500"},i.voids)),React.createElement("div",{className:"bg-[#151a27] border border-yellow-500/30 p-3 rounded-xl flex flex-col items-center justify-center shadow-sm"
@@ -3440,6 +3445,73 @@ className:"text-[11px] font-black uppercase tracking-widest text-cyan-500 mb-3"}
 className:"text-slate-500 text-xs"},"Motorcycle"),React.createElement("span",{className:"font-semibold text-slate-800 dark:text-slate-100 text-right"},[vw.brand,vw.model].filter(Boolean).join(" ")||"\u2014"),React.createElement("span",{className:"text-slate-500 text-xs"},"Displacement"),React.createElement("span",{className:"font-semibold text-slate-800 dark:text-slate-100 text-right"},vw.displacement||"\u2014"),React.createElement("span",{className:"text-slate-500 text-xs"},"Service"),React.createElement("span",{className:"font-semibold text-slate-800 dark:text-slate-100 text-right"},vw.serviceType||"\u2014"),React.createElement("span",{className:"text-slate-500 text-xs"},"Date"),React.createElement("span",{className:"font-semibold text-slate-800 dark:text-slate-100 text-right"},vw.date||"\u2014"),React.createElement("span",{className:"text-slate-500 text-xs"},"Time"),React.createElement("span",{className:"font-semibold text-slate-800 dark:text-slate-100 text-right"},vw.time||"\u2014"))),React.createElement("div",{className:"bg-fuchsia-500/5 dark:bg-fuchsia-900/10 border border-fuchsia-500/30 rounded-xl p-4"},React.createElement("h4",{className:"text-[11px] font-black uppercase tracking-widest text-fuchsia-500 mb-3"},React.createElement("i",{className:"fas fa-receipt mr-2"}),"Payment & Receipt"),vw.paymentMethod||vw.referenceNumber||vw.receiptUrl||vw.receiptImage?React.createElement("div",{className:"space-y-3"},React.createElement("div",{
 className:"grid grid-cols-3 gap-3 text-xs"},React.createElement("div",null,React.createElement("p",{className:"text-slate-500 uppercase tracking-wider font-bold mb-1"},"Method"),React.createElement("p",{className:"font-bold text-slate-800 dark:text-white text-sm"},vw.paymentMethod||"\u2014")),React.createElement("div",null,React.createElement("p",{className:"text-slate-500 uppercase tracking-wider font-bold mb-1"},"Amount"),React.createElement("p",{className:"font-black text-orange-500 text-sm"},"\u20B1"+Number(vw.reservationAmount||0).toLocaleString())),React.createElement("div",null,React.createElement("p",{className:"text-slate-500 uppercase tracking-wider font-bold mb-1"},"Reference #"),React.createElement("p",{className:"font-mono font-bold text-slate-800 dark:text-white text-sm break-all"},vw.referenceNumber||"\u2014"))),(()=>{var _res=Number(vw.reservationAmount)||0,_svc=Number(vw.laborFeeAmount)||0;var _tot=vw.totalOverride?(Number(vw.totalAmount)||0):_svc;var _ps=vw.payment_status||"pending";var _paid=_ps==="fully_paid"||_ps==="completed"?_tot:(_ps==="reservation_paid"?_res:0);var _bal=Math.max(0,_tot-_paid);var _pe=function(n){return "\u20B1"+(Number(n)||0).toLocaleString(void 0,{minimumFractionDigits:2,maximumFractionDigits:2})};if(_tot<=0&&_res<=0)return null;return React.createElement("div",{className:"mt-2 rounded-lg border border-slate-200 dark:border-[#2d3748] bg-slate-50 dark:bg-[#0f1522] p-3 space-y-1.5 text-xs"},React.createElement("div",{className:"flex justify-between"},React.createElement("span",{className:"text-slate-500"},"Reservation Fee"),React.createElement("span",{className:"font-bold text-slate-700 dark:text-slate-200"},_pe(_res))),React.createElement("div",{className:"flex justify-between"},React.createElement("span",{className:"text-slate-500"},"Service Amount"),React.createElement("span",{className:"font-bold text-slate-700 dark:text-slate-200"},_pe(_svc))),React.createElement("div",{className:"flex justify-between pt-1.5 border-t border-slate-200 dark:border-[#2d3748]"},React.createElement("span",{className:"font-bold text-slate-600 dark:text-slate-300"},"Total"),React.createElement("span",{className:"font-black text-slate-800 dark:text-white"},_pe(_tot))),React.createElement("div",{className:"flex justify-between"},React.createElement("span",{className:"text-emerald-600 dark:text-emerald-400"},"Paid"),React.createElement("span",{className:"font-bold text-emerald-600 dark:text-emerald-400"},_pe(_paid))),React.createElement("div",{className:"flex justify-between pt-1.5 border-t border-slate-200 dark:border-[#2d3748]"},React.createElement("span",{className:"font-black uppercase "+(_bal>0?"text-red-500":"text-emerald-500")},_bal>0?"Balance Due":"Fully Settled"),React.createElement("span",{className:"font-black text-base "+(_bal>0?"text-red-500":"text-emerald-500")},_pe(_bal))))})(),((vw.receiptUrl || "").trim() || (vw.receiptImage || "").trim()) && React.createElement("a",{href:vw.receiptUrl||vw.receiptImage,target:"_blank",rel:"noopener",download:"receipt_"+(vw.code||vw.id||"file"),className:"flex items-center gap-3 p-3 rounded-xl border border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10 transition-colors group"},React.createElement("div",{className:"w-10 h-10 rounded-lg bg-blue-500/15 flex items-center justify-center shrink-0"},React.createElement("i",{className:"fas fa-file-arrow-down text-blue-500 text-lg"})),React.createElement("div",{className:"flex-1 min-w-0"},React.createElement("p",{className:"text-sm font-bold text-slate-800 dark:text-white truncate"},"Receipt / Proof of Payment"),React.createElement("p",{className:"text-[10px] text-blue-400"},"Click to view / download")),React.createElement("i",{className:"fas fa-download text-blue-400 group-hover:translate-y-0.5 transition-transform"}))):React.createElement("p",{className:"text-xs text-slate-500 italic"},"No payment information on file."))),React.createElement("div",{
 className:"flex justify-end gap-2 p-4 border-t border-slate-200 dark:border-[#1f2937]"},React.createElement("button",{onClick:()=>setVw(null),className:"px-5 py-2.5 text-sm font-bold rounded-lg border border-slate-300 dark:border-[#2d3748] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1a2234]"},"Close"),React.createElement("button",{onClick:()=>{const t=vw;setVw(null);M(t)},className:"px-6 py-2.5 text-sm font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-md flex items-center gap-2"},React.createElement("i",{className:"fas fa-pen-to-square"})," Edit")))))}const root=ReactDOM.createRoot(document.getElementById("root"));root.render(React.createElement(App,null));</script>
+<script id="imms-global-mojibake-cleanup">
+(function () {
+  "use strict";
+  var pairs = [
+    ["\u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u2026\u00c2\u00a1\u00c3\u201a\u00c2\u00b1", "PHP "],
+    ["\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u2026\u00c2\u00a1\u00c3\u201a\u00c2\u00b1", "PHP "],
+    ["\u00e2\u201a\u00b1", "PHP "],
+    ["\u00e2\u20ac\u00a2", " - "],
+    ["\u00e2\u20ac\u201d", "-"],
+    ["\u00e2\u20ac\u201c", "-"],
+    ["\u00e2\u20ac\u2122", "'"],
+    ["\u00e2\u20ac\u02dc", "'"],
+    ["\u00e2\u20ac\u0153", "\""],
+    ["\u00e2\u20ac\u009d", "\""],
+    ["\u00c2", ""]
+  ];
+
+  function clean(value) {
+    var text = String(value == null ? "" : value);
+    for (var i = 0; i < pairs.length; i++) {
+      text = text.split(pairs[i][0]).join(pairs[i][1]);
+    }
+    return text;
+  }
+
+  function cleanTextNode(node) {
+    if (!node || node.nodeType !== 3) return;
+    var next = clean(node.nodeValue);
+    if (next !== node.nodeValue) node.nodeValue = next;
+  }
+
+  function cleanElement(root) {
+    if (!root) return;
+    if (root.nodeType === 3) {
+      cleanTextNode(root);
+      return;
+    }
+    if (root.nodeType !== 1 && root.nodeType !== 9 && root.nodeType !== 11) return;
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    var node;
+    while ((node = walker.nextNode())) cleanTextNode(node);
+    if (root.nodeType === 1) {
+      ["title", "placeholder", "aria-label"].forEach(function (attr) {
+        if (root.hasAttribute && root.hasAttribute(attr)) {
+          var oldValue = root.getAttribute(attr);
+          var newValue = clean(oldValue);
+          if (newValue !== oldValue) root.setAttribute(attr, newValue);
+        }
+      });
+    }
+  }
+
+  function start() {
+    cleanElement(document.body);
+    var observer = new MutationObserver(function (mutations) {
+      mutations.forEach(function (mutation) {
+        if (mutation.type === "characterData") cleanTextNode(mutation.target);
+        for (var i = 0; i < mutation.addedNodes.length; i++) cleanElement(mutation.addedNodes[i]);
+      });
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
+})();
+</script>
 <script id="imms-non-sales-one-year-retention">
 (() => {
   "use strict";
