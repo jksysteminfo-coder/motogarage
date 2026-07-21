@@ -7,7 +7,7 @@
 <!-- IMMS mobile POS bottom tabs + full inventory search + credit delete controls | 2026-07-18 -->
 <!-- IMMS CRM clickable transaction details | 2026-07-15 -->
 <!-- IMMS local system-date date picker auto-sync | 2026-07-14 -->
-<!-- IMMS automatic 1-year retention for non-sales transaction/history records | 2026-07-14 -->
+<!-- IMMS 30-day retention for audit/inventory/payment logs; 1-year for other non-sales history | 2026-07-22 -->
 <!-- IMMS service warranty transaction reference linkage | 2026-07-14 -->
 <!-- IMMS encoding cleanup + printable inventory barcode | 2026-07-14 -->
 <!-- IMMS atomic void reversal: restore inventory + reverse active sales/payroll | 2026-07-14 -->
@@ -3611,33 +3611,34 @@ className:"flex justify-end gap-2 p-4 border-t border-slate-200 dark:border-[#1f
   else start();
 })();
 </script>
-<script id="imms-non-sales-one-year-retention">
+<script id="imms-non-sales-mixed-retention">
 (() => {
   "use strict";
 
-  const RETENTION_LAST_RUN_KEY = "imms_non_sales_retention_last_run_v1";
-  const RETENTION_LOCK_KEY = "imms_non_sales_retention_lock_v1";
+  const RETENTION_LAST_RUN_KEY = "imms_non_sales_mixed_retention_last_run_v3";
+  const RETENTION_LOCK_KEY = "imms_non_sales_mixed_retention_lock_v3";
   const RETENTION_RUN_EVERY_MS = 24 * 60 * 60 * 1000;
   const RETENTION_RETRY_CHECK_MS = 6 * 60 * 60 * 1000;
   const RETENTION_LOCK_MS = 15 * 60 * 1000;
   const DELETE_BATCH_SIZE = 400;
 
   // Sales records are intentionally excluded and are never deleted by this cleanup.
-  // Master/configuration collections are also excluded.
+  // Only audit_logs, inventory_logs, and payment_logs use 30-day retention.
+  // Other existing non-sales history collections retain the original one-year policy.
   const NON_SALES_HISTORY_COLLECTIONS = [
-    { name: "service_warranty", dateFields: ["dateReported", "lastServiceDate", "createdAt", "timestamp", "updatedAt"] },
-    { name: "inventory_logs", dateFields: ["timestamp", "date", "createdAt", "updatedAt"] },
-    { name: "appointments", dateFields: ["date", "timestamp", "createdAt", "updatedAt"] },
-    { name: "payment_logs", dateFields: ["timestamp", "date", "createdAt", "updatedAt"] },
-    { name: "expenses", dateFields: ["date", "timestamp", "createdAt", "updatedAt"] },
-    { name: "credit_transactions", dateFields: ["date", "timestamp", "createdAt", "updatedAt"] },
-    { name: "pre_orders", dateFields: ["date", "orderDate", "timestamp", "createdAt", "updatedAt"] },
-    { name: "rma_returns", dateFields: ["dateReported", "date", "timestamp", "createdAt", "updatedAt"] },
-    { name: "attendance_logs", dateFields: ["date", "timestamp", "clockIn", "timeIn", "createdAt", "updatedAt"] },
-    { name: "payroll_logs", dateFields: ["timestamp", "date", "periodEnd", "periodStart", "createdAt", "updatedAt"] },
-    { name: "audit_logs", dateFields: ["timestamp", "date", "createdAt", "updatedAt"] },
-    { name: "quotations", dateFields: ["date", "timestamp", "createdAt", "updatedAt", "validUntil"] },
-    { name: "cashier_sessions", dateFields: ["closedAt", "openedAt", "timestamp", "createdAt", "updatedAt"] }
+    { name: "service_warranty", retentionYears: 1, dateFields: ["dateReported", "lastServiceDate", "createdAt", "timestamp", "updatedAt"] },
+    { name: "inventory_logs", retentionDays: 30, dateFields: ["timestamp", "date", "createdAt", "updatedAt"] },
+    { name: "appointments", retentionYears: 1, dateFields: ["date", "timestamp", "createdAt", "updatedAt"] },
+    { name: "payment_logs", retentionDays: 30, dateFields: ["timestamp", "date", "createdAt", "updatedAt"] },
+    { name: "expenses", retentionYears: 1, dateFields: ["date", "timestamp", "createdAt", "updatedAt"] },
+    { name: "credit_transactions", retentionYears: 1, dateFields: ["date", "timestamp", "createdAt", "updatedAt"] },
+    { name: "pre_orders", retentionYears: 1, dateFields: ["date", "orderDate", "timestamp", "createdAt", "updatedAt"] },
+    { name: "rma_returns", retentionYears: 1, dateFields: ["dateReported", "date", "timestamp", "createdAt", "updatedAt"] },
+    { name: "attendance_logs", retentionYears: 1, dateFields: ["date", "timestamp", "clockIn", "timeIn", "createdAt", "updatedAt"] },
+    { name: "payroll_logs", retentionYears: 1, dateFields: ["timestamp", "date", "periodEnd", "periodStart", "createdAt", "updatedAt"] },
+    { name: "audit_logs", retentionDays: 30, dateFields: ["timestamp", "date", "createdAt", "updatedAt"] },
+    { name: "quotations", retentionYears: 1, dateFields: ["date", "timestamp", "createdAt", "updatedAt", "validUntil"] },
+    { name: "cashier_sessions", retentionYears: 1, dateFields: ["closedAt", "openedAt", "timestamp", "createdAt", "updatedAt"] }
   ];
 
   function toMillis(value) {
@@ -3678,6 +3679,22 @@ className:"flex justify-end gap-2 p-4 border-t border-slate-200 dark:border-[#1f
     return NaN;
   }
 
+  function getCutoffMs(rule, now) {
+    const cutoff = new Date(now);
+    if (Number.isFinite(rule.retentionDays)) {
+      cutoff.setDate(cutoff.getDate() - rule.retentionDays);
+    } else {
+      cutoff.setFullYear(cutoff.getFullYear() - (rule.retentionYears || 1));
+    }
+    return cutoff.getTime();
+  }
+
+  function getRetentionLabel(rule) {
+    if (Number.isFinite(rule.retentionDays)) return `${rule.retentionDays} days`;
+    const years = rule.retentionYears || 1;
+    return `${years} year${years === 1 ? "" : "s"}`;
+  }
+
   async function deleteDocumentsInBatches(documents) {
     let deleted = 0;
     for (let start = 0; start < documents.length; start += DELETE_BATCH_SIZE) {
@@ -3690,7 +3707,8 @@ className:"flex justify-end gap-2 p-4 border-t border-slate-200 dark:border-[#1f
     return deleted;
   }
 
-  async function purgeCollection(rule, cutoffMs) {
+  async function purgeCollection(rule, now) {
+    const cutoffMs = getCutoffMs(rule, now);
     const snapshot = await db.collection(rule.name).get();
     const expired = snapshot.docs.filter((doc) => {
       const recordTime = getRecordTime(doc.data() || {}, rule.dateFields);
@@ -3727,17 +3745,17 @@ className:"flex justify-end gap-2 p-4 border-t border-slate-200 dark:border-[#1f
 
     if (!acquireCleanupLock(now)) return;
 
-    const cutoff = new Date(now);
-    cutoff.setFullYear(cutoff.getFullYear() - 1);
-    const cutoffMs = cutoff.getTime();
     const deletedByCollection = {};
     let totalDeleted = 0;
 
     try {
       for (const rule of NON_SALES_HISTORY_COLLECTIONS) {
         try {
-          const deleted = await purgeCollection(rule, cutoffMs);
-          deletedByCollection[rule.name] = deleted;
+          const deleted = await purgeCollection(rule, now);
+          deletedByCollection[rule.name] = {
+            deleted,
+            retention: getRetentionLabel(rule)
+          };
           totalDeleted += deleted;
         } catch (error) {
           console.error(`[IMMS retention] Failed to clean ${rule.name}:`, error);
@@ -3750,7 +3768,7 @@ className:"flex justify-end gap-2 p-4 border-t border-slate-200 dark:border-[#1f
 
       if (totalDeleted > 0) {
         console.info(
-          `[IMMS retention] Deleted ${totalDeleted} non-sales history record(s) older than one year.`,
+          `[IMMS retention] Deleted ${totalDeleted} expired non-sales history record(s).`,
           deletedByCollection
         );
       }
