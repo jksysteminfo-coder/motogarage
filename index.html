@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- IMMS Product Sales mobile sidebar logout overlay fix | 2026-07-25 -->
 <!-- IMMS mobile sidebar logout visibility fix | 2026-07-25 -->
 <!-- IMMS role-based landing + unauthorized-view guard | 2026-07-24 -->
 <!-- IMMS dashboard undefined state reference fix | 2026-07-24 -->
@@ -2328,6 +2329,9 @@
         height: 100svh !important;
         height: 100dvh !important;
         max-height: 100dvh !important;
+        /* Product Sales has a fixed bottom tab bar at z-index 10020.
+           Keep the opened sidebar and its logout footer above that bar. */
+        z-index: 10050 !important;
       }
 
       .imms-app-sidebar-nav {
@@ -2338,6 +2342,7 @@
         position: sticky;
         bottom: 0;
         min-height: calc(68px + env(safe-area-inset-bottom));
+        z-index: 10051 !important;
         box-shadow: 0 -10px 24px rgba(15, 23, 42, .16);
       }
 
