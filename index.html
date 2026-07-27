@@ -1,5 +1,6 @@
 <!-- IMMS two-file deployment: GitHub/Cloudflare index.html + Apps Script Code.gs backend | 2026-07-27 -->
 <!DOCTYPE html>
+<!-- IMMS migration restore: no JSONP/googleusercontent bridge; preserve Drive URLs | 2026-07-28 -->
 <!-- IMMS POS receipt integrity + pending-write visibility fix | 2026-07-27 -->
 <!-- IMMS Firestore quota-safe cashier aggregates + no polling | 2026-07-27 -->
 <!-- IMMS polished cashier close prefetch + opening history + initial fund tally | 2026-07-27 -->
@@ -2804,54 +2805,7 @@
     return endpoint;
   }
 
-  function jsonpRequest(endpoint, params, timeoutMs) {
-    return new Promise((resolve, reject) => {
-      const callbackName = "__immsGasJsonp_" + Date.now() + "_" + (++IMMS_GAS_BRIDGE_SEQUENCE) + "_" + Math.random().toString(36).slice(2);
-      const query = new URLSearchParams(Object.assign({}, params || {}, { callback: callbackName, _ts: Date.now() }));
-      const script = document.createElement("script");
-      let finished = false;
-      const timer = setTimeout(() => finish(new Error("Apps Script backend did not respond.")), timeoutMs || 30000);
-
-      function cleanup() {
-        clearTimeout(timer);
-        // Keep a temporary no-op callback. Apps Script JSONP responses can arrive
-        // after a timeout; deleting the callback immediately causes a noisy
-        // ReferenceError even though the request has already been handled.
-        try { window[callbackName] = function () {}; } catch (_) {}
-        setTimeout(() => {
-          try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
-        }, 5 * 60 * 1000);
-        try { script.remove(); } catch (_) {}
-      }
-
-      function finish(error, value) {
-        if (finished) return;
-        finished = true;
-        cleanup();
-        if (error) reject(error); else resolve(value);
-      }
-
-      window[callbackName] = value => finish(null, value);
-      script.async = true;
-      script.onerror = () => finish(new Error("Apps Script /exec returned HTTP 403 or could not be loaded. Redeploy the Web App with Execute as: Me and Who has access: Anyone."));
-      script.src = endpoint + (endpoint.includes("?") ? "&" : "?") + query.toString();
-      document.head.appendChild(script);
-    });
-  }
-
-  async function pollGasResult(endpoint, requestId) {
-    const started = Date.now();
-    let delay = 500;
-    while (Date.now() - started < 180000) {
-      const response = await jsonpRequest(endpoint, { api: "migration_result", requestId }, 20000);
-      if (response && response.pending === false) return response.result || {};
-      await new Promise(resolve => setTimeout(resolve, delay));
-      delay = Math.min(1800, Math.round(delay * 1.25));
-    }
-    throw new Error("Apps Script processing timed out. Check Apps Script Executions for the exact error.");
-  }
-
-  function gasCall(functionName, payload) {
+  async function gasCall(functionName, payload) {
     const actionMap = {
       getMigrationServiceStatus: "migration_health",
       getDriveAssetForBackup: "migration_asset_read",
@@ -2859,53 +2813,34 @@
       restoreFirestoreMigrationChunk: "migration_firestore_restore_chunk"
     };
     const action = actionMap[functionName];
-    if (!action) return Promise.reject(new Error("Unsupported Apps Script migration function: " + functionName));
+    if (!action) throw new Error("Unsupported Apps Script migration function: " + functionName);
 
-    let endpoint;
-    try { endpoint = gasEndpoint(); } catch (error) { return Promise.reject(error); }
-
-    // Read-only calls use JSONP directly. This works from GitHub/Cloudflare Pages
-    // without CORS and without loading the Apps Script response inside an iframe.
-    if (functionName === "getMigrationServiceStatus") {
-      return jsonpRequest(endpoint, { api: "migration_health" }, 30000).then(result => {
-        if (result && (result.ok === false || result.success === false)) throw new Error(result.error || result.message || "Apps Script request failed.");
-        return result || {};
-      });
-    }
-    if (functionName === "getDriveAssetForBackup") {
-      return jsonpRequest(endpoint, Object.assign({ api: "migration_asset_read" }, payload || {}), 120000).then(result => {
-        if (result && (result.ok === false || result.success === false)) throw new Error(result.error || result.message || "Apps Script request failed.");
-        return result || {};
-      });
-    }
-
-    // Write calls are submitted as an opaque no-CORS POST. The result is stored
-    // server-side under requestId and retrieved through a JSONP polling endpoint.
-    // This avoids the script.googleusercontent.com iframe 403 seen on Pages.dev.
-    const requestId = "imms-" + Date.now() + "-" + (++IMMS_GAS_BRIDGE_SEQUENCE) + "-" + Math.random().toString(36).slice(2);
-    const body = Object.assign({}, payload || {}, {
-      action,
-      requestId,
-      transport: "async"
-    });
-
+    const endpoint = gasEndpoint();
+    let response;
     try {
-      fetch(endpoint, {
+      response = await fetch(endpoint, {
         method: "POST",
-        mode: "no-cors",
+        mode: "cors",
         cache: "no-store",
         credentials: "omit",
+        redirect: "follow",
         headers: { "Content-Type": "text/plain;charset=UTF-8" },
-        body: JSON.stringify(body)
-      }).catch(() => {});
-    } catch (_) {}
+        body: JSON.stringify(Object.assign({ action }, payload || {}))
+      });
+    } catch (error) {
+      throw new Error("Apps Script request could not be reached: " + String(error && error.message || error));
+    }
 
-    return pollGasResult(endpoint, requestId).then(result => {
-      if (result && (result.ok === false || result.success === false)) {
-        throw new Error(result.error || result.message || "Apps Script request failed.");
-      }
-      return result || {};
-    });
+    const text = await response.text();
+    let result;
+    try { result = JSON.parse(text); }
+    catch (_) {
+      throw new Error("Apps Script returned an invalid response (HTTP " + response.status + "). Redeploy the latest Code.gs.");
+    }
+    if (!response.ok || (result && (result.ok === false || result.success === false))) {
+      throw new Error(result && (result.error || result.message) || ("Apps Script HTTP " + response.status));
+    }
+    return result || {};
   }
 
   async function fetchAsset(url) {
@@ -3083,7 +3018,7 @@
       "Destination photo storage: Google Drive",
       "",
       "Restore this ZIP from Settings > Full Database Migration in an IMMS deployment connected to the destination Firebase project.",
-      "The importer uploads included photos to Google Drive first, then restores Firestore records with original IDs, dates and transaction references."
+      "The importer preserves existing Google Drive photo URLs, restores embedded images from the ZIP, then restores Firestore records with original IDs, dates and transaction references."
     ].join("\n"));
     onProgress({ phase: "zip", percent: 72, message: "Compressing full backup…" });
     const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } }, meta => {
@@ -3103,65 +3038,59 @@
     return text.includes("resource_exhausted") || text.includes("resource-exhausted") || text.includes("quota") || text.includes("daily limit") || text.includes("429");
   }
 
-  async function uploadAssetsToDrive(zip, manifest, onProgress) {
-    const health = await gasCall("getMigrationServiceStatus", {});
-    if (!health || health.driveReady !== true) {
-      throw new Error((health && (health.error || health.message)) || "Google Drive migration service is not ready.");
-    }
-    if (health.serviceVersion !== MIGRATION_SERVICE_VERSION) {
-      throw new Error("The deployed Code.gs is outdated. Deploy the Code.gs included with this ZIP as a New Version, then reopen the /exec URL.");
-    }
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(reader.error || new Error("Could not read an embedded backup image."));
+      reader.readAsDataURL(blob);
+    });
+  }
 
+  async function prepareAssetsForRestore(zip, manifest, onProgress) {
     const assets = Array.isArray(manifest.assets) ? manifest.assets : [];
     const map = new Map();
     const unique = [];
     const seen = new Set();
+    let driveLinkCount = 0;
+    let embeddedCount = 0;
+
     for (const asset of assets) {
       if (!asset || !asset.path || seen.has(asset.path)) continue;
       seen.add(asset.path);
       unique.push(asset);
     }
+
     for (let i = 0; i < unique.length; i++) {
       const asset = unique[i];
-      const file = zip.file(asset.path);
-      if (!file) throw new Error("Missing photo inside ZIP: " + asset.path);
-      const blob = await file.async("blob");
-      const payload = {
-        backupId: manifest.backupId || "backup",
-        path: asset.path,
-        filename: asset.path.split("/").pop() || "asset",
-        mimeType: asset.mime || blob.type || "application/octet-stream",
-        base64: await blobToBase64(blob),
-        sha256: asset.sha256 || "",
-        collection: asset.collection || "",
-        documentId: asset.documentId || "",
-        fieldPath: asset.fieldPath || ""
-      };
+      const originalUrl = String(asset.originalUrl || "").trim();
 
-      let result = null;
-      let lastError = null;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          result = await gasCall("uploadDriveMigrationAsset", payload);
-          if (!result || result.ok === false || !result.url) {
-            throw new Error(result && (result.error || result.message) || "The Drive service returned no file URL.");
-          }
-          if (result.serviceVersion && result.serviceVersion !== MIGRATION_SERVICE_VERSION) {
-            throw new Error("The deployed Code.gs is outdated.");
-          }
-          break;
-        } catch (error) {
-          lastError = error;
-          if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 700 * attempt));
-        }
+      // Moving Firestore projects does not move or invalidate Google Drive files.
+      // Reuse the persistent URL already stored in the old database instead of
+      // uploading the same photo again through an unreliable cross-origin bridge.
+      if (/^https?:\/\//i.test(originalUrl)) {
+        map.set(asset.path, originalUrl);
+        driveLinkCount++;
+      } else {
+        // Images that were originally embedded as data URLs (for example QR/logo
+        // images in settings) are restored in their original form from the ZIP.
+        const file = zip.file(asset.path);
+        if (!file) throw new Error("Missing image inside ZIP: " + asset.path);
+        const blob = await file.async("blob");
+        map.set(asset.path, await blobToDataUrl(blob));
+        embeddedCount++;
       }
-      if (!result || !result.url) {
-        throw new Error("Google Drive upload failed for " + asset.path + ": " + String(lastError && lastError.message || lastError || "Unknown Drive error"));
-      }
-      map.set(asset.path, result.url);
-      onProgress({ phase: "drive", current: i + 1, total: unique.length, percent: unique.length ? Math.round((i + 1) / unique.length * 35) : 35, message: (result && result.reused ? "Reusing existing Drive photos · " : "Uploading photos to Google Drive · ") + (i + 1) + "/" + unique.length });
+
+      onProgress({
+        phase: "assets",
+        current: i + 1,
+        total: unique.length,
+        percent: unique.length ? 3 + Math.round((i + 1) / unique.length * 17) : 20,
+        message: "Preparing photo references · " + (i + 1) + "/" + unique.length
+      });
     }
-    return map;
+
+    return { map, driveLinkCount, embeddedCount };
   }
 
   function base64ToUint8Array(base64) {
@@ -3277,8 +3206,9 @@
     onProgress({ phase: "preflight", percent: 1, message: "Checking Firestore restore permission before uploading photos…" });
     await verifyClientFirestoreRestoreAccess(db, projectId);
 
-    onProgress({ phase: "drive", percent: 3, message: "Uploading included photos to Google Drive…" });
-    const assetMap = await uploadAssetsToDrive(zip, manifest, onProgress);
+    onProgress({ phase: "assets", percent: 3, message: "Preparing existing Drive links and embedded backup images…" });
+    const assetInfo = await prepareAssetsForRestore(zip, manifest, onProgress);
+    const assetMap = assetInfo.map;
 
     const collections = Array.isArray(manifest.collections) ? manifest.collections.slice() : COLLECTIONS.slice();
     collections.sort((a, b) => (a === "settings" ? 1 : b === "settings" ? -1 : 0));
@@ -3323,7 +3253,7 @@
       await commit();
     }
     await commit();
-    return { manifest, restored, driveAssetCount: assetMap.size, destinationProjectId: projectId };
+    return { manifest, restored, assetCount: assetMap.size, driveLinkCount: assetInfo.driveLinkCount, embeddedAssetCount: assetInfo.embeddedCount, destinationProjectId: projectId };
   }
 
   window.IMMS_DATABASE_MIGRATION = { collections: COLLECTIONS.slice(), createBackup, restoreBackup };
@@ -3365,13 +3295,13 @@
       event.target.value = "";
       if (!file || busy) return;
       const projectId = String(firebase.app().options.projectId || "");
-      if (!window.confirm("Restore ALL records and photos from this ZIP into Firebase project '" + projectId + "'? Photos will be uploaded to Google Drive first. Matching IDs will be overwritten. Continue?")) return;
+      if (!window.confirm("Restore ALL records and photos from this ZIP into Firebase project '" + projectId + "'? Existing Google Drive links will be preserved and embedded images will be restored from the ZIP. Matching IDs will be overwritten. Continue?")) return;
       setBusy(true); setProgress(1); setStatus("Opening backup ZIP…");
       try {
         const result = await restoreBackup(file, { projectId }, onProgress);
         setProgress(100);
-        setStatus("Restore completed: " + result.restored + " records and " + result.driveAssetCount + " Drive photos. Refresh the system.");
-        notify("Full database and Google Drive photo restore completed.", "success");
+        setStatus("Restore completed: " + result.restored + " records, " + result.driveLinkCount + " existing Drive photo links preserved, and " + result.embeddedAssetCount + " embedded images restored. Refresh the system.");
+        notify("Full database restore completed. Existing Google Drive photos were preserved.", "success");
         try { logAudit("FULL_DATABASE_RESTORE", "Restored backup " + result.manifest.backupId + " with " + result.restored + " records"); } catch (_) {}
       } catch (error) {
         console.error("Full restore failed:", error);
@@ -3384,8 +3314,8 @@
       e("div", { className: "flex items-start justify-between gap-3 flex-wrap" },
         e("div", null,
           e("h3", { className: "font-bold text-slate-800 dark:text-white flex items-center gap-2" }, e("i", { className: "fas fa-database text-cyan-500" }), "Full Database Migration"),
-          e("p", { className: "text-xs text-slate-500 mt-1 max-w-2xl" }, "One ZIP contains all known Firestore records, original document IDs, transaction references, dates, cashier sessions/history and included photos. The system checks Firestore permission first, uploads photos to Google Drive, then restores the records directly to motor-dubai.")),
-        e("span", { className: "text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded bg-emerald-500/15 text-emerald-500" }, "Firestore + Drive")
+          e("p", { className: "text-xs text-slate-500 mt-1 max-w-2xl" }, "One ZIP contains all known Firestore records, original document IDs, transaction references, dates, cashier sessions/history and included photos. The system checks Firestore permission first, preserves existing Google Drive photo links, restores embedded images from the ZIP, then restores records directly to motor-dubai.")),
+        e("span", { className: "text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded bg-emerald-500/15 text-emerald-500" }, "Firestore + Existing Drive Links")
       ),
       e("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-3 mt-4" },
         e("button", { type: "button", disabled: busy, onClick: exportAll, className: "px-4 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-black disabled:opacity-50" }, e("i", { className: "fas fa-file-zipper mr-2" }), busy ? "Working…" : "Download Complete Backup ZIP"),
@@ -3396,7 +3326,7 @@
         e("div", { className: "h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden" }, e("div", { className: "h-full bg-cyan-500 transition-all", style: { width: Math.max(2, Math.min(100, progress)) + "%" } })),
         e("p", { className: "text-[11px] text-slate-500 mt-2 break-words" }, status)
       ),
-      e("p", { className: "text-[10px] text-amber-500 mt-3" }, "Photos use Google Apps Script + Drive. Firestore records restore directly through the Firebase Web SDK and follow motor-dubai Firestore Rules. Permission is checked before any photo upload. Re-uploading the same ZIP safely resumes because original document IDs are preserved.")
+      e("p", { className: "text-[10px] text-amber-500 mt-3" }, "Restore no longer uploads photos through Apps Script. Existing Google Drive URLs are preserved, embedded images are rebuilt from the ZIP, and Firestore records restore directly through the Firebase Web SDK. Re-uploading the same ZIP safely resumes because original document IDs are preserved.")
     );
   };
 })();
