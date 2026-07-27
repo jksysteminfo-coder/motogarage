@@ -39,6 +39,7 @@
 <!-- IMMS build 2026-07-01 11:30 | appt-service-revenue-tally -->
 <html lang="en">
 <head>
+  <!-- IMMS Firestore full ZIP backup/restore + write-quota saver | 2026-07-27 -->
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>IMMS - Integrated Motorshop Management System</title>
@@ -2451,365 +2452,87 @@
 
 <script id="imms-emergency-offline-pos">
 (function () {
-  const STORE_ID = 'HERNIERA-MOTO-GARAGE';
-  const DEFAULT_GAS_FAILOVER_URL = 'https://script.google.com/macros/s/AKfycbxCyDQR_0z6rC6HGfx9PUftb3j8SHyQTI0ZKL2icsVH5i04ofcL8YUsAxunJjmC8m4zBg/exec';
-  const FIRESTORE_FAST_TIMEOUT_MS = 1800;
-  const memoryQueue = new Map();
-  const sharedQueue = new Map();
+  "use strict";
   const sessionMemory = new Map();
-  let sharedMode = 'NORMAL';
-  let sharedReason = '';
-  let refreshPromise = null;
-  let syncPromise = null;
-  let failoverUntil = 0;
-  const deviceIdValue = 'DEV-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 8).toUpperCase();
-
   const nowIso = () => new Date().toISOString();
-  const deviceId = () => deviceIdValue;
-  const emit = () => {
-    try { window.dispatchEvent(new CustomEvent('imms-offline-pos-changed')); } catch (_) {}
-    try { window.dispatchEvent(new CustomEvent('imms-shared-sheet-changed')); } catch (_) {}
-  };
-  const gasRuntimeAvailable = () => !!(window.google && google.script && google.script.run);
-  const gasConfig = () => ({ url: DEFAULT_GAS_FAILOVER_URL, storeId: STORE_ID, enabled: true, direct: gasRuntimeAvailable() });
-  const gasConfigured = () => gasRuntimeAvailable() || !!DEFAULT_GAS_FAILOVER_URL;
-  const configureGas = () => true;
-  const disableGas = () => false;
-
-  const directGas = (method, arg) => new Promise((resolve, reject) => {
-    if (!gasRuntimeAvailable()) return reject(new Error('Apps Script runtime is unavailable.'));
-    try {
-      const runner = google.script.run
-        .withSuccessHandler(value => value && value.ok === false ? reject(new Error(value.error || 'Google Sheets request failed.')) : resolve(value || {}))
-        .withFailureHandler(error => reject(new Error(String(error && error.message || error || 'Google Sheets request failed.'))));
-      if (arg === undefined) runner[method](); else runner[method](arg);
-    } catch (error) { reject(error); }
-  });
-
-  const postGas = (payload) => {
-    const body = JSON.stringify({ ...payload, storeId: STORE_ID, deviceId: payload.deviceId || deviceId(), sentAt: nowIso() });
-    try {
-      fetch(DEFAULT_GAS_FAILOVER_URL, {
-        method: 'POST', mode: 'no-cors', cache: 'no-store', keepalive: true,
-        headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body
-      }).catch(() => {
-        try { navigator.sendBeacon && navigator.sendBeacon(DEFAULT_GAS_FAILOVER_URL, new Blob([body], { type: 'text/plain;charset=UTF-8' })); } catch (_) {}
-      });
-      return true;
-    } catch (_) {
-      try { return !!(navigator.sendBeacon && navigator.sendBeacon(DEFAULT_GAS_FAILOVER_URL, new Blob([body], { type: 'text/plain;charset=UTF-8' }))); }
-      catch (_error) { return false; }
-    }
-  };
-
-  const gasPost = payload => {
-    const action = String(payload && payload.action || '').toLowerCase();
-    if (gasRuntimeAvailable()) {
-      if (action === 'enqueue') { directGas('enqueueFailoverSale', payload).catch(() => {}); return true; }
-      if (action === 'ack') { directGas('acknowledgeFailoverSale', payload).catch(() => {}); return true; }
-      if (action === 'set_mode') { directGas('setFailoverMode', payload).catch(() => {}); return true; }
-      if (action === 'sync_now') { directGas('syncFailoverNow').catch(() => {}); return true; }
-    }
-    return postGas(payload);
-  };
-
-  const jsonp = (api, params) => new Promise((resolve, reject) => {
-    if (gasRuntimeAvailable()) {
-      if (api === 'status') return directGas('getFailoverStatus', STORE_ID).then(resolve, reject);
-      if (api === 'list') return directGas('listFailoverQueue', { ...(params || {}), storeId: STORE_ID }).then(resolve, reject);
-      if (api === 'ping') return directGas('pingFailover').then(resolve, reject);
-    }
-    const callback = '__immsSheetJsonp_' + Date.now().toString(36) + Math.random().toString(36).slice(2);
-    const script = document.createElement('script');
-    let done = false;
-    const finish = (error, value) => {
-      if (done) return; done = true;
-      clearTimeout(timer);
-      try { delete window[callback]; } catch (_) { window[callback] = undefined; }
-      try { script.remove(); } catch (_) {}
-      error ? reject(error) : resolve(value || {});
-    };
-    const timer = setTimeout(() => finish(new Error('Google Sheets request timed out.')), 8000);
-    window[callback] = value => value && value.ok === false ? finish(new Error(value.error || 'Google Sheets request failed.')) : finish(null, value);
-    script.onerror = () => finish(new Error('Unable to reach Google Sheets.'));
-    const url = new URL(DEFAULT_GAS_FAILOVER_URL);
-    url.searchParams.set('api', api);
-    url.searchParams.set('storeId', STORE_ID);
-    url.searchParams.set('callback', callback);
-    url.searchParams.set('_', String(Date.now()));
-    Object.entries(params || {}).forEach(([key, value]) => url.searchParams.set(key, String(value)));
-    script.src = url.toString();
-    document.head.appendChild(script);
-  });
-
+  const deviceIdValue = "DEV-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 8).toUpperCase();
   const isFallbackError = error => {
-    if (window.IMMS_IS_FIRESTORE_QUOTA_ERROR && window.IMMS_IS_FIRESTORE_QUOTA_ERROR(error)) return true;
-    const code = String(error && error.code || '').toLowerCase();
-    const message = String(error && error.message || error || '').toLowerCase();
-    return code.includes('resource-exhausted') || code.includes('unavailable') || code.includes('deadline-exceeded') ||
-      code.includes('network-request-failed') || message.includes('quota') || message.includes('resource-exhausted') ||
-      message.includes('maximum backoff') || message.includes('client is offline') || message.includes('network error') ||
-      message.includes('unexpected state') || message.includes('timed out');
+    const code = String(error && error.code || "").toLowerCase();
+    const message = String(error && error.message || error || "").toLowerCase();
+    return code.includes("resource-exhausted") || code.includes("unavailable") || code.includes("deadline-exceeded") ||
+      code.includes("network-request-failed") || message.includes("quota") || message.includes("resource-exhausted") ||
+      message.includes("network") || message.includes("offline") || message.includes("timed out");
   };
 
-  const activate = reason => {
-    sharedMode = 'FIRESTORE_FAILOVER';
-    sharedReason = String(reason || 'Firestore is unavailable.');
-    failoverUntil = Date.now() + 15 * 60 * 1000;
-    gasPost({ action: 'set_mode', mode: 'FIRESTORE_FAILOVER', reason: sharedReason, deviceId: deviceId() });
-    emit();
-  };
-  const deactivate = () => { if (!sharedQueue.size && !memoryQueue.size) { sharedMode = 'NORMAL'; sharedReason = ''; failoverUntil = 0; emit(); } };
-  const isActive = () => sharedMode === 'FIRESTORE_FAILOVER' || Date.now() < failoverUntil || pendingCount() > 0;
-
-  const enqueuePayload = record => ({
-    action: 'enqueue', queueId: String(record.id), storeId: STORE_ID, deviceId: record.deviceId || deviceId(),
-    failover: true, reason: record.lastSyncError || sharedReason || 'Firestore unavailable', record
-  });
-
-  const sendEntry = entry => {
-    if (!entry || entry.sending || entry.sheetConfirmed) return;
-    entry.sending = true;
-    entry.attempts = Number(entry.attempts || 0) + 1;
-    const payload = enqueuePayload(entry.record);
-    const promise = gasRuntimeAvailable()
-      ? directGas('enqueueFailoverSale', payload)
-      : Promise.resolve(postGas(payload) ? { ok: true, unconfirmed: true } : Promise.reject(new Error('Unable to send to Google Sheets.')));
-    promise.then(result => {
-      entry.sending = false;
-      entry.sheetConfirmed = !result.unconfirmed;
-      entry.lastError = '';
-      setTimeout(() => refreshSharedQueue(true).catch(() => {}), 250);
-      if (result.unconfirmed) setTimeout(() => sendEntry(entry), 5000);
-    }).catch(error => {
-      entry.sending = false;
-      entry.lastError = String(error && error.message || error || 'Google Sheets save failed.');
-      const delay = Math.min(30000, 1000 * Math.pow(2, Math.min(entry.attempts, 5)));
-      setTimeout(() => sendEntry(entry), delay);
-    });
-  };
-
-  const queueSale = async (record) => {
-    if (!record || !record.id) throw new Error('POS sale record is invalid.');
-    const stored = {
-      ...record,
-      recordType: record.recordType || 'SALE',
-      deviceId: record.deviceId || deviceId(),
-      createdAt: record.createdAt || nowIso(),
-      queuedAt: record.queuedAt || nowIso(),
-      queueMode: 'GOOGLE_SHEETS_FAILOVER',
-      syncAttempts: Number(record.syncAttempts) || 0
-    };
-    if (!memoryQueue.has(String(stored.id))) memoryQueue.set(String(stored.id), { record: stored, attempts: 0, sending: false, sheetConfirmed: false });
-    activate('Firestore quota or network failure. Google Sheets is the temporary database.');
-    setTimeout(() => sendEntry(memoryQueue.get(String(stored.id))), 0);
-    emit();
-    return stored;
-  };
-
-  const acknowledgeSheet = record => {
-    if (!record || !record.id) return;
-    const payload = { action: 'ack', queueId: String(record.id), storeId: STORE_ID, deviceId: record.deviceId || deviceId(), syncedAt: nowIso() };
-    gasPost(payload);
-    setTimeout(() => gasPost(payload), 4000);
-    setTimeout(() => gasPost(payload), 15000);
-  };
-
-  const writeRecord = (writer, dbRef, record, markerRef) => {
+  function writeRecord(batch, dbRef, record) {
+    const saleId = String(record.saleDocId || record.id);
     const cleanSale = { ...(record.saleData || {}) };
     delete cleanSale.offlinePending;
     delete cleanSale.backgroundSyncPending;
     delete cleanSale.syncPending;
-    cleanSale.status = 'Completed';
-    cleanSale.syncSource = 'POS';
-    writer.set(dbRef.collection('sales').doc(String(record.saleDocId || record.id)), cleanSale, { merge: true });
-    if (record.creditData && record.creditDocId) writer.set(dbRef.collection('customer_credits').doc(String(record.creditDocId)), record.creditData, { merge: true });
-    if (record.payrollData && record.payrollDocId) writer.set(dbRef.collection('payroll_logs').doc(String(record.payrollDocId)), record.payrollData, { merge: true });
-    if (record.warrantyData && record.warrantyDocId) writer.set(dbRef.collection('service_warranty').doc(String(record.warrantyDocId)), record.warrantyData, { merge: true });
+    cleanSale.status = "Completed";
+    cleanSale.syncSource = "Firestore";
+    cleanSale.writeSaverVersion = 2;
+    batch.set(dbRef.collection("sales").doc(saleId), cleanSale, { merge: false });
+    if (record.creditData && record.creditDocId) batch.set(dbRef.collection("customer_credits").doc(String(record.creditDocId)), record.creditData, { merge: false });
+    if (record.payrollData && record.payrollDocId) batch.set(dbRef.collection("payroll_logs").doc(String(record.payrollDocId)), record.payrollData, { merge: false });
+    if (record.warrantyData && record.warrantyDocId) batch.set(dbRef.collection("service_warranty").doc(String(record.warrantyDocId)), record.warrantyData, { merge: false });
     (record.stockChanges || []).forEach(change => {
-      const id = String(change.productId || '');
+      const id = String(change.productId || "");
       const delta = Number(change.delta) || 0;
       if (!id || !delta) return;
-      writer.set(dbRef.collection('products').doc(id), {
-        stock: firebase.firestore.FieldValue.increment(delta), updatedAt: firebase.firestore.FieldValue.serverTimestamp(), lastPosSyncRef: record.id
+      batch.set(dbRef.collection("products").doc(id), {
+        stock: firebase.firestore.FieldValue.increment(delta),
+        updatedAt: nowIso(),
+        lastTransactionId: saleId
       }, { merge: true });
     });
-    if (record.sessionId) {
-      if (record.sessionOpenData) {
-        const sessionWrite = { ...record.sessionOpenData, aggregateVersion: 2, aggregateUpdatedAt: nowIso() };
-        Object.keys(record.aggregateDelta || {}).forEach(key => {
-          const value = Number(record.aggregateDelta[key]) || 0;
-          if (value) sessionWrite[key] = firebase.firestore.FieldValue.increment(value);
-        });
-        writer.set(dbRef.collection('cashier_sessions').doc(String(record.sessionId)), sessionWrite, { merge: true });
-        if (record.sessionOpenData.ownerKey) writer.set(dbRef.collection('cashier_active_sessions').doc(String(record.sessionOpenData.ownerKey)), {
-          sessionId: String(record.sessionId), ownerId: record.sessionOpenData.openedByUserId || '', ownerName: record.sessionOpenData.openedByName || '', status: 'Open', updatedAt: nowIso()
-        }, { merge: true });
-      } else if (window.IMMS_CASHIER_AGGREGATE_UPDATE) {
-        window.IMMS_CASHIER_AGGREGATE_UPDATE(writer, dbRef, record.sessionId, record.aggregateDelta || {});
-      }
+    if (record.sessionId && window.IMMS_CASHIER_AGGREGATE_UPDATE) {
+      window.IMMS_CASHIER_AGGREGATE_UPDATE(batch, dbRef, record.sessionId, record.aggregateDelta || {});
     }
-    writer.set(markerRef, {
-      transactionRef: record.transactionRef || (record.saleData && record.saleData.ref) || record.id,
-      saleDocId: record.saleDocId || record.id, sessionId: record.sessionId || '', deviceId: record.deviceId || deviceId(),
-      queuedAt: record.queuedAt || record.createdAt || '', syncedAt: nowIso(), version: 3
-    }, { merge: true });
-  };
+  }
 
-  const commitRecordToFirestore = async (record, dbRef) => {
-    if (!dbRef) throw new Error('Firestore is unavailable.');
-    const markerRef = dbRef.collection('offline_pos_sync').doc(String(record.id));
-    await dbRef.runTransaction(async transaction => {
-      const marker = await transaction.get(markerRef);
-      if (marker.exists) return;
-      writeRecord(transaction, dbRef, record, markerRef);
-    });
-  };
-
-  const commitSale = async (record, dbRef) => {
-    if (!record || !record.id) throw new Error('POS sale record is invalid.');
-    const knownFailover = sharedMode === 'FIRESTORE_FAILOVER' || Date.now() < failoverUntil;
-    if (knownFailover || !dbRef) {
-      await queueSale(record);
-      return { ok: true, pendingSync: true, destination: 'Google Sheets' };
-    }
-
-    const cloudPromise = commitRecordToFirestore(record, dbRef);
-    cloudPromise.then(() => acknowledgeSheet(record)).catch(() => {});
-    const first = await Promise.race([
-      cloudPromise.then(() => ({ ok: true })).catch(error => ({ ok: false, error })),
-      new Promise(resolve => setTimeout(() => resolve({ ok: false, timeout: true, error: new Error('Firestore save timed out.') }), FIRESTORE_FAST_TIMEOUT_MS))
-    ]);
-    if (first.ok) return { ok: true, pendingSync: false, destination: 'Firestore' };
-    if (!first.timeout && !isFallbackError(first.error)) throw first.error;
-    await queueSale({ ...record, lastSyncError: String(first.error && first.error.message || first.error || '') });
-    return { ok: true, pendingSync: true, destination: 'Google Sheets' };
-  };
-
-  const loadAllQueuePages = async () => {
-    const all = [];
-    let offset = 0;
-    for (let page = 0; page < 20; page++) {
-      const result = await jsonp('list', { offset, limit: 50 });
-      (result.records || []).forEach(record => all.push(record));
-      if (!result.hasMore) break;
-      offset = Number(result.nextOffset) || offset + 50;
-    }
-    return all;
-  };
-
-  const refreshSharedQueue = async force => {
-    if (refreshPromise && !force) return refreshPromise;
-    refreshPromise = (async () => {
-      const status = await jsonp('status');
-      sharedMode = String(status.mode || 'NORMAL').toUpperCase();
-      sharedReason = String(status.reason || '');
-      const rows = Number(status.queueCount || 0) > 0 ? await loadAllQueuePages() : [];
-      sharedQueue.clear();
-      rows.forEach(record => record && record.id && sharedQueue.set(String(record.id), record));
-      for (const [id, entry] of memoryQueue.entries()) {
-        if (sharedQueue.has(id)) memoryQueue.delete(id);
-        else if (entry.sheetConfirmed && sharedMode === 'NORMAL') setTimeout(() => memoryQueue.delete(id), 10000);
-      }
-      if (sharedMode === 'NORMAL' && !sharedQueue.size && !memoryQueue.size) deactivate();
-      emit();
-      return { mode: sharedMode, records: rows };
-    })().finally(() => { refreshPromise = null; });
-    return refreshPromise;
-  };
-
-  const combinedRecords = () => {
-    const map = new Map();
-    sharedQueue.forEach((record, id) => map.set(id, record));
-    memoryQueue.forEach((entry, id) => map.set(id, entry.record));
-    return Array.from(map.values());
-  };
-  const salesOnly = () => combinedRecords().filter(record => String(record.recordType || 'SALE') === 'SALE' && record.saleData);
-  const pendingCount = () => salesOnly().length;
-  const totalPendingCount = pendingCount;
-  const listPending = async () => salesOnly();
-  const getStockDelta = productId => {
-    const id = String(productId || '');
-    return salesOnly().reduce((sum, record) => sum + (record.stockChanges || []).reduce((inner, change) => inner + (String(change.productId || '') === id ? Number(change.delta) || 0 : 0), 0), 0);
-  };
-  const mergeRemoteSales = baseSales => {
-    const result = Array.isArray(baseSales) ? baseSales.slice() : [];
-    const ids = new Set(result.map(row => String(row && row.id || '')));
-    const refs = new Set(result.map(row => String(row && row.ref || '')));
-    salesOnly().forEach(record => {
-      const sale = record.saleData || {};
-      const id = String(record.saleDocId || record.id);
-      const ref = String(sale.ref || record.transactionRef || '');
-      if (ids.has(id) || (ref && refs.has(ref))) return;
-      result.push({ ...sale, id, status: sale.status || 'Completed', sheetPending: true, syncPending: true, syncSource: 'Google Sheets Temporary Database' });
-      ids.add(id); if (ref) refs.add(ref);
-    });
-    return result;
-  };
-
-  const syncPending = async () => {
-    if (syncPromise) return syncPromise;
-    syncPromise = (async () => {
+  async function commitSale(record, dbRef) {
+    if (!record || !record.id) throw new Error("POS sale record is invalid.");
+    if (!dbRef) throw new Error("Firestore is unavailable.");
+    const saleId = String(record.saleDocId || record.id);
+    const batch = dbRef.batch();
+    writeRecord(batch, dbRef, record);
+    try {
+      await batch.commit();
+      return { ok: true, pendingSync: false, destination: "Firestore" };
+    } catch (error) {
       try {
-        if (gasRuntimeAvailable()) await directGas('syncFailoverNow');
-        else gasPost({ action: 'sync_now' });
+        const check = await dbRef.collection("sales").doc(saleId).get();
+        if (check.exists) return { ok: true, pendingSync: false, destination: "Firestore", acknowledgementRecovered: true };
       } catch (_) {}
-      try { await refreshSharedQueue(true); } catch (_) {}
-      return { synced: 0, remaining: pendingCount(), sharedSheets: true };
-    })().finally(() => { syncPromise = null; });
-    return syncPromise;
-  };
-  const rebuildMirrors = () => refreshSharedQueue(true);
-  const retryGasMirrors = async () => { memoryQueue.forEach(sendEntry); return { mirrored: memoryQueue.size }; };
+      throw error;
+    }
+  }
 
-  const localSessionSummary = async sessionId => {
-    const rows = salesOnly().filter(record => !sessionId || String(record.sessionId || '') === String(sessionId));
-    const summary = { count: rows.length, total: 0, productSales: 0, shopShare: 0 };
-    rows.forEach(record => {
-      const delta = record.aggregateDelta || {};
-      summary.total += Number(delta.processedAmountTotal) || 0;
-      summary.productSales += Number(delta.posProductSalesTotal) || 0;
-      summary.shopShare += Number(delta.posShopShareTotal) || 0;
-    });
-    return summary;
+  const api = {
+    commitSale,
+    isFallbackError,
+    pendingCount: () => 0,
+    totalPendingCount: () => 0,
+    listPending: async () => [],
+    syncPending: async () => ({ synced: 0, remaining: 0, firestoreOnly: true }),
+    mergeRemoteSales: rows => Array.isArray(rows) ? rows : [],
+    getStockDelta: () => 0,
+    localSessionSummary: async () => ({ count: 0, total: 0, productSales: 0, shopShare: 0 }),
+    saveLocalSession: (sessionId, payload) => { if (sessionId && payload) sessionMemory.set(String(sessionId), payload); },
+    getLocalSession: sessionId => sessionMemory.get(String(sessionId || "")) || null,
+    clearLocalSession: sessionId => sessionMemory.delete(String(sessionId || "")),
+    deviceId: () => deviceIdValue,
+    activate: () => {}, deactivate: () => {}, isActive: () => false,
+    rebuildMirrors: async () => ({ ok: true }), retryGasMirrors: async () => ({ mirrored: 0 }),
+    gasConfigured: () => false, configureGas: () => {}, disableGas: () => {}, gasPost: () => false,
+    sharedMode: () => "FIRESTORE_ONLY", sharedReason: () => "", sharedRecords: () => [], refreshSharedQueue: async () => ({ mode: "FIRESTORE_ONLY", records: [] })
   };
-
-  const saveLocalSession = (sessionId, payload) => {
-    if (!sessionId || !payload) return;
-    sessionMemory.set(String(sessionId), payload);
-    queueSale({
-      id: 'SESSION-OPEN-' + String(sessionId), recordType: 'CASHIER_SESSION_OPEN', sessionId: String(sessionId),
-      transactionRef: 'SESSION-OPEN-' + String(sessionId), sessionOpenData: payload, aggregateDelta: {}, stockChanges: [],
-      userId: payload.openedByUserId || '', userName: payload.openedByName || '', createdAt: payload.timestamp || nowIso()
-    }).catch(() => {});
-  };
-  const getLocalSession = sessionId => sessionMemory.get(String(sessionId || '')) || null;
-  const clearLocalSession = sessionId => sessionMemory.delete(String(sessionId || ''));
-
-  window.IMMS_OFFLINE_POS = {
-    activate, deactivate, isActive, isFallbackError, queueSale, commitSale, listPending, pendingCount, totalPendingCount,
-    mergeRemoteSales, getStockDelta, syncPending, rebuildMirrors, localSessionSummary, saveLocalSession, getLocalSession,
-    clearLocalSession, deviceId, gasConfig, gasConfigured, configureGas, disableGas, gasPost, retryGasMirrors,
-    sharedMode: () => sharedMode, sharedReason: () => sharedReason, sharedRecords: () => Array.from(sharedQueue.values()),
-    refreshSharedQueue
-  };
-
-  window.addEventListener('online', () => refreshSharedQueue(true).catch(() => {}));
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshSharedQueue(false).catch(() => {}); });
-  window.addEventListener('beforeunload', () => {
-    memoryQueue.forEach(entry => {
-      if (!entry.sheetConfirmed) {
-        try {
-          const body = JSON.stringify({ ...enqueuePayload(entry.record), storeId: STORE_ID, deviceId: deviceId(), sentAt: nowIso() });
-          navigator.sendBeacon && navigator.sendBeacon(DEFAULT_GAS_FAILOVER_URL, new Blob([body], { type: 'text/plain;charset=UTF-8' }));
-        } catch (_) {}
-      }
-    });
-  });
-  setTimeout(() => refreshSharedQueue(true).catch(() => {}), 300);
-  setInterval(() => refreshSharedQueue(false).catch(() => {}), 5000);
+  window.IMMS_OFFLINE_POS = api;
 })();
 </script>
+
 
 </head>
 <body>
@@ -2832,8 +2555,480 @@
   
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+
+<script id="imms-write-saver">
+(function () {
+  "use strict";
+  const queue = [];
+  let timer = null;
+  let flushing = false;
+  let activeDb = null;
+
+  async function flush() {
+    if (flushing || !activeDb || !queue.length) return;
+    flushing = true;
+    const entries = queue.splice(0, 40);
+    try {
+      const first = entries[0] || {};
+      const last = entries[entries.length - 1] || first;
+      await activeDb.collection("audit_logs").add({
+        user: first.user || "System",
+        role: first.role || "",
+        action: entries.length === 1 ? first.action : "AUDIT_BATCH",
+        details: entries.length === 1 ? first.details : entries.length + " audit events",
+        timestamp: last.timestamp || new Date().toISOString(),
+        entryCount: entries.length,
+        entries
+      });
+    } catch (error) {
+      queue.unshift(...entries);
+      console.warn("Audit batch flush delayed:", error);
+    } finally {
+      flushing = false;
+      if (queue.length >= 10) setTimeout(flush, 1000);
+    }
+  }
+
+  function logAudit(db, user, role, action, details) {
+    if (!db) return;
+    activeDb = db;
+    queue.push({
+      user: user && (user.username || user.name || user.email) || "System",
+      role: role || "",
+      action: String(action || "ACTION"),
+      details: String(details || ""),
+      timestamp: new Date().toISOString()
+    });
+    if (queue.length >= 10) flush();
+    if (!timer) timer = setInterval(flush, 120000);
+  }
+
+  window.IMMS_WRITE_SAVER = { logAudit, flush, pendingAuditCount: () => queue.length };
+  window.addEventListener("online", flush);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) flush(); });
+})();
+</script>
+
+<script id="imms-firestore-backup-restore">
+(function () {
+  "use strict";
+
+  const COLLECTIONS = [
+    "settings", "users", "products", "services_list", "bundles", "brands", "motorcycle_models",
+    "inventory_logs", "sales", "service_orders", "employees", "attendance_logs", "payroll_logs",
+    "bookings", "booking_slots", "booking_templates", "appointments", "customers", "audit_logs",
+    "backjobs", "rma_returns", "pre_orders", "expenses", "customer_credits", "credit_transactions",
+    "payment_logs", "quotations", "service_warranty", "cashier_sessions", "cashier_active_sessions"
+  ];
+  const EXPORT_PAGE_SIZE = 200;
+  const IMPORT_BATCH_SIZE = 180;
+  const ASSET_FIELD_RE = /(image|photo|picture|receipt|proof|attachment|thumbnail|avatar|logo|qr|signature|document|file)/i;
+  const ASSET_URL_RE = /\.(png|jpe?g|webp|gif|bmp|svg|pdf)(?:[?#].*)?$/i;
+
+  function safeSegment(value) {
+    return String(value == null ? "" : value).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 120) || "item";
+  }
+
+  function isoCompact() {
+    return new Date().toISOString().replace(/[:.]/g, "-");
+  }
+
+  function extensionForMime(mime) {
+    const map = {
+      "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif",
+      "image/bmp": "bmp", "image/svg+xml": "svg", "application/pdf": "pdf"
+    };
+    return map[String(mime || "").toLowerCase()] || "bin";
+  }
+
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error("Unable to read asset."));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function dataUrlToBlob(value) {
+    const match = String(value || "").match(/^data:([^;,]+)?(;base64)?,([\s\S]*)$/i);
+    if (!match) throw new Error("Invalid data URL.");
+    const mime = match[1] || "application/octet-stream";
+    const payload = match[3] || "";
+    let bytes;
+    if (match[2]) {
+      const binary = atob(payload.replace(/\s/g, ""));
+      bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    } else {
+      bytes = new TextEncoder().encode(decodeURIComponent(payload));
+    }
+    return new Blob([bytes], { type: mime });
+  }
+
+  async function sha256(blob) {
+    try {
+      if (!window.crypto || !window.crypto.subtle) return "";
+      const digest = await window.crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+      return Array.from(new Uint8Array(digest)).map(v => v.toString(16).padStart(2, "0")).join("");
+    } catch (_) { return ""; }
+  }
+
+  async function fetchAsset(url) {
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), 12000) : null;
+    try {
+      const response = await fetch(url, { mode: "cors", cache: "no-store", signal: controller ? controller.signal : undefined });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      return await response.blob();
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  function isTimestamp(value) {
+    return !!(value && typeof value === "object" && typeof value.seconds === "number" && typeof value.nanoseconds === "number" && typeof value.toDate === "function");
+  }
+
+  async function encodeValue(value, ctx, path) {
+    if (value === null || value === undefined) return value === undefined ? { __immsType: "undefined" } : null;
+    if (typeof value === "string") {
+      const fieldPath = path.join(".");
+      let blob = null;
+      let originalKind = "";
+      let originalUrl = "";
+      if (/^data:/i.test(value)) {
+        try { blob = dataUrlToBlob(value); originalKind = "data-url"; } catch (_) {}
+      } else if (/^https?:\/\//i.test(value) && (ASSET_FIELD_RE.test(fieldPath) || ASSET_URL_RE.test(value))) {
+        try { blob = await fetchAsset(value); originalKind = "url"; originalUrl = value; }
+        catch (error) {
+          ctx.unresolved.push({ collection: ctx.collection, documentId: ctx.documentId, fieldPath, url: value, error: String(error && error.message || error) });
+          return value;
+        }
+      }
+      if (blob) {
+        const index = ++ctx.assetCounter.value;
+        const mime = blob.type || "application/octet-stream";
+        const assetPath = ["assets", safeSegment(ctx.collection), safeSegment(ctx.documentId), safeSegment(fieldPath || "asset") + "_" + index + "." + extensionForMime(mime)].join("/");
+        ctx.zip.file(assetPath, blob);
+        const item = {
+          path: assetPath,
+          collection: ctx.collection,
+          documentId: ctx.documentId,
+          fieldPath,
+          mime,
+          size: blob.size,
+          sha256: await sha256(blob),
+          originalKind,
+          originalUrl
+        };
+        ctx.assets.push(item);
+        return { __immsType: "asset", path: assetPath, mime, originalKind, originalUrl, size: blob.size, sha256: item.sha256 };
+      }
+      return value;
+    }
+    if (typeof value === "number") {
+      if (Number.isNaN(value)) return { __immsType: "number", value: "NaN" };
+      if (value === Infinity) return { __immsType: "number", value: "Infinity" };
+      if (value === -Infinity) return { __immsType: "number", value: "-Infinity" };
+      return value;
+    }
+    if (typeof value === "boolean") return value;
+    if (value instanceof Date) return { __immsType: "date", value: value.toISOString() };
+    if (isTimestamp(value)) return { __immsType: "timestamp", seconds: value.seconds, nanoseconds: value.nanoseconds };
+    if (value && typeof value.latitude === "number" && typeof value.longitude === "number") return { __immsType: "geopoint", latitude: value.latitude, longitude: value.longitude };
+    if (value && typeof value.path === "string" && value.firestore) return { __immsType: "reference", path: value.path };
+    if (value && typeof value.toUint8Array === "function") {
+      const blob = new Blob([value.toUint8Array()], { type: "application/octet-stream" });
+      const index = ++ctx.assetCounter.value;
+      const assetPath = ["assets", safeSegment(ctx.collection), safeSegment(ctx.documentId), "firestore_blob_" + index + ".bin"].join("/");
+      ctx.zip.file(assetPath, blob);
+      ctx.assets.push({ path: assetPath, collection: ctx.collection, documentId: ctx.documentId, fieldPath: path.join("."), mime: blob.type, size: blob.size, originalKind: "firestore-blob", originalUrl: "" });
+      return { __immsType: "firestore-blob", path: assetPath };
+    }
+    if (Array.isArray(value)) {
+      const output = [];
+      for (let i = 0; i < value.length; i++) output.push(await encodeValue(value[i], ctx, path.concat(String(i))));
+      return output;
+    }
+    if (typeof value === "object") {
+      const output = {};
+      for (const key of Object.keys(value)) output[key] = await encodeValue(value[key], ctx, path.concat(key));
+      return output;
+    }
+    return String(value);
+  }
+
+  async function decodeValue(value, ctx) {
+    if (value === null || value === undefined || typeof value !== "object") return value;
+    if (Array.isArray(value)) {
+      const output = [];
+      for (const item of value) output.push(await decodeValue(item, ctx));
+      return output;
+    }
+    if (value.__immsType === "undefined") return null;
+    if (value.__immsType === "date") return new Date(value.value);
+    if (value.__immsType === "timestamp") return new firebase.firestore.Timestamp(Number(value.seconds) || 0, Number(value.nanoseconds) || 0);
+    if (value.__immsType === "geopoint") return new firebase.firestore.GeoPoint(Number(value.latitude) || 0, Number(value.longitude) || 0);
+    if (value.__immsType === "reference") return ctx.db.doc(String(value.path || ""));
+    if (value.__immsType === "number") {
+      if (value.value === "NaN") return NaN;
+      if (value.value === "Infinity") return Infinity;
+      if (value.value === "-Infinity") return -Infinity;
+    }
+    if (value.__immsType === "firestore-blob") {
+      const file = ctx.zip.file(value.path);
+      if (!file) throw new Error("Missing backup asset: " + value.path);
+      const bytes = new Uint8Array(await file.async("arraybuffer"));
+      return firebase.firestore.Blob.fromUint8Array(bytes);
+    }
+    if (value.__immsType === "asset") {
+      if (ctx.assetCache.has(value.path)) return ctx.assetCache.get(value.path);
+      const file = ctx.zip.file(value.path);
+      if (!file) throw new Error("Missing backup photo: " + value.path);
+      const blob = await file.async("blob");
+      let restored = "";
+      if (ctx.uploadAssets && firebase.storage) {
+        try {
+          const storagePath = "imms-migration/" + safeSegment(ctx.backupId) + "/" + value.path;
+          const ref = firebase.storage().ref().child(storagePath);
+          await ref.put(blob, { contentType: value.mime || blob.type || "application/octet-stream", customMetadata: { immsBackupId: ctx.backupId } });
+          restored = await ref.getDownloadURL();
+        } catch (error) {
+          ctx.warnings.push("Storage upload failed for " + value.path + ": " + String(error && error.message || error));
+        }
+      }
+      if (!restored) {
+        if (value.originalKind === "url" && value.originalUrl && blob.size > 700000) restored = value.originalUrl;
+        else restored = await blobToDataUrl(blob);
+      }
+      ctx.assetCache.set(value.path, restored);
+      return restored;
+    }
+    const output = {};
+    for (const key of Object.keys(value)) output[key] = await decodeValue(value[key], ctx);
+    return output;
+  }
+
+  async function exportCollection(db, name, zip, shared, onProgress) {
+    const rows = [];
+    let lastDoc = null;
+    let page = 0;
+    while (true) {
+      let query = db.collection(name).orderBy(firebase.firestore.FieldPath.documentId()).limit(EXPORT_PAGE_SIZE);
+      if (lastDoc) query = query.startAfter(lastDoc);
+      const snap = await query.get();
+      if (snap.empty) break;
+      page++;
+      for (const doc of snap.docs) {
+        const ctx = { zip, assets: shared.assets, unresolved: shared.unresolved, assetCounter: shared.assetCounter, collection: name, documentId: doc.id };
+        rows.push({ id: doc.id, data: await encodeValue(doc.data(), ctx, []) });
+        shared.documentCount++;
+        onProgress({ phase: "export", collection: name, current: shared.documentCount, message: "Exporting " + name + " · " + shared.documentCount + " records" });
+      }
+      lastDoc = snap.docs[snap.docs.length - 1];
+      if (snap.size < EXPORT_PAGE_SIZE) break;
+    }
+    zip.file("collections/" + name + ".json", JSON.stringify(rows));
+    return rows.length;
+  }
+
+  async function createBackup(db, onProgress) {
+    if (!window.JSZip) throw new Error("ZIP library failed to load. Refresh and try again.");
+    const zip = new JSZip();
+    const backupId = "IMMS-" + Date.now().toString(36).toUpperCase();
+    const shared = { assets: [], unresolved: [], assetCounter: { value: 0 }, documentCount: 0 };
+    const counts = {};
+    for (let i = 0; i < COLLECTIONS.length; i++) {
+      const name = COLLECTIONS[i];
+      onProgress({ phase: "export", collection: name, current: shared.documentCount, message: "Reading " + name + "…", percent: Math.round(i / COLLECTIONS.length * 70) });
+      counts[name] = await exportCollection(db, name, zip, shared, onProgress);
+    }
+    const manifest = {
+      format: "IMMS_FULL_FIRESTORE_BACKUP",
+      schemaVersion: 2,
+      backupId,
+      generatedAt: new Date().toISOString(),
+      sourceProjectId: firebase.app().options.projectId || "",
+      sourceStorageBucket: firebase.app().options.storageBucket || "",
+      collections: COLLECTIONS,
+      collectionCounts: counts,
+      documentCount: shared.documentCount,
+      assetCount: shared.assets.length,
+      unresolvedAssetCount: shared.unresolved.length,
+      assets: shared.assets
+    };
+    zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+    zip.file("unresolved-assets.json", JSON.stringify(shared.unresolved, null, 2));
+    zip.file("README.txt", [
+      "IMMS FULL DATABASE BACKUP",
+      "Backup ID: " + backupId,
+      "Created: " + manifest.generatedAt,
+      "Source project: " + manifest.sourceProjectId,
+      "Documents: " + manifest.documentCount,
+      "Photos/assets included: " + manifest.assetCount,
+      "Unresolved remote assets: " + manifest.unresolvedAssetCount,
+      "",
+      "Restore this ZIP from Settings > Full Database Migration in an IMMS deployment connected to the destination Firebase project.",
+      "Document IDs, transaction references, dates, cashier sessions, sales, histories, photos and settings are preserved."
+    ].join("\n"));
+    onProgress({ phase: "zip", percent: 72, message: "Compressing full backup…" });
+    const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } }, meta => {
+      onProgress({ phase: "zip", percent: 72 + Math.round(meta.percent * 0.28), message: "Compressing ZIP · " + Math.round(meta.percent) + "%" });
+    });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "IMMS_FULL_BACKUP_" + safeSegment(manifest.sourceProjectId || "firebase") + "_" + isoCompact() + ".zip";
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => { URL.revokeObjectURL(link.href); link.remove(); }, 2000);
+    return manifest;
+  }
+
+  function isQuotaError(error) {
+    const text = String(error && (error.code || error.message) || error || "").toLowerCase();
+    return text.includes("resource-exhausted") || text.includes("quota") || text.includes("daily limit");
+  }
+
+  async function restoreBackup(file, db, options, onProgress) {
+    if (!window.JSZip) throw new Error("ZIP library failed to load. Refresh and try again.");
+    const zip = await JSZip.loadAsync(file);
+    const manifestFile = zip.file("manifest.json");
+    if (!manifestFile) throw new Error("This is not a valid IMMS full backup ZIP.");
+    const manifest = JSON.parse(await manifestFile.async("string"));
+    if (manifest.format !== "IMMS_FULL_FIRESTORE_BACKUP") throw new Error("Unsupported backup format.");
+    const collections = Array.isArray(manifest.collections) ? manifest.collections.slice() : COLLECTIONS.slice();
+    collections.sort((a, b) => (a === "settings" ? 1 : b === "settings" ? -1 : 0));
+    const total = collections.reduce((sum, name) => sum + Number(manifest.collectionCounts && manifest.collectionCounts[name] || 0), 0);
+    const ctx = {
+      db,
+      zip,
+      uploadAssets: options.uploadAssets !== false,
+      backupId: manifest.backupId || "backup",
+      assetCache: new Map(),
+      warnings: []
+    };
+    let restored = 0;
+    let batch = db.batch();
+    let batchCount = 0;
+    const commit = async () => {
+      if (!batchCount) return;
+      try { await batch.commit(); }
+      catch (error) {
+        if (isQuotaError(error)) {
+          const paused = new Error("Firestore daily write quota was reached after " + restored + " of " + total + " records. Keep this ZIP and run Restore again after the quota resets; matching document IDs will be safely overwritten.");
+          paused.code = "imms/quota-paused";
+          throw paused;
+        }
+        throw error;
+      }
+      batch = db.batch();
+      batchCount = 0;
+    };
+    for (const name of collections) {
+      const collectionFile = zip.file("collections/" + name + ".json");
+      if (!collectionFile) continue;
+      const rows = JSON.parse(await collectionFile.async("string"));
+      if (!Array.isArray(rows)) continue;
+      for (const row of rows) {
+        if (!row || !row.id) continue;
+        const data = await decodeValue(row.data, ctx);
+        batch.set(db.collection(name).doc(String(row.id)), data, { merge: false });
+        batchCount++;
+        restored++;
+        onProgress({ phase: "restore", collection: name, current: restored, total, percent: total ? Math.round(restored / total * 100) : 100, message: "Restoring " + name + " · " + restored + "/" + total });
+        if (batchCount >= IMPORT_BATCH_SIZE) await commit();
+      }
+      await commit();
+    }
+    await commit();
+    return { manifest, restored, warnings: ctx.warnings };
+  }
+
+  window.IMMS_DATABASE_MIGRATION = { collections: COLLECTIONS.slice(), createBackup, restoreBackup };
+
+  window.DatabaseMigrationPanel = function DatabaseMigrationPanel(props) {
+    const e = React.createElement;
+    const db = props.db;
+    const notify = props.notify || function () {};
+    const logAudit = props.logAudit || function () {};
+    const stateBusy = React.useState(false), busy = stateBusy[0], setBusy = stateBusy[1];
+    const stateProgress = React.useState(0), progress = stateProgress[0], setProgress = stateProgress[1];
+    const stateStatus = React.useState(""), status = stateStatus[0], setStatus = stateStatus[1];
+    const stateUpload = React.useState(true), uploadAssets = stateUpload[0], setUploadAssets = stateUpload[1];
+    const inputRef = React.useRef(null);
+
+    const onProgress = info => {
+      setProgress(Number(info.percent != null ? info.percent : progress) || 0);
+      setStatus(info.message || "Working…");
+    };
+
+    const exportAll = async () => {
+      if (busy) return;
+      setBusy(true); setProgress(1); setStatus("Preparing complete backup…");
+      try {
+        const manifest = await createBackup(db, onProgress);
+        setProgress(100);
+        setStatus("Backup downloaded: " + manifest.documentCount + " records and " + manifest.assetCount + " photos/assets.");
+        notify(manifest.unresolvedAssetCount ? "Backup completed with " + manifest.unresolvedAssetCount + " remote photo URL(s) that could not be downloaded. See unresolved-assets.json inside the ZIP." : "Complete database backup downloaded.", manifest.unresolvedAssetCount ? "info" : "success");
+        try { logAudit("FULL_DATABASE_EXPORT", "Downloaded full ZIP backup " + manifest.backupId + " with " + manifest.documentCount + " records"); } catch (_) {}
+      } catch (error) {
+        console.error("Full backup failed:", error);
+        setStatus("Backup failed: " + String(error && error.message || error));
+        notify("Backup failed: " + String(error && error.message || error), "error");
+      } finally { setBusy(false); }
+    };
+
+    const importFile = async event => {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = "";
+      if (!file || busy) return;
+      if (!window.confirm("Restore ALL records from this ZIP into the currently connected Firebase project? Matching document IDs will be overwritten. Continue?")) return;
+      setBusy(true); setProgress(1); setStatus("Opening backup ZIP…");
+      try {
+        const result = await restoreBackup(file, db, { uploadAssets }, onProgress);
+        setProgress(100);
+        setStatus("Restore completed: " + result.restored + " records. Refresh the system after the live listeners update.");
+        notify("Full database restore completed successfully.", "success");
+        try { logAudit("FULL_DATABASE_RESTORE", "Restored backup " + result.manifest.backupId + " with " + result.restored + " records"); } catch (_) {}
+        if (result.warnings.length) console.warn("IMMS restore warnings:", result.warnings);
+      } catch (error) {
+        console.error("Full restore failed:", error);
+        setStatus(String(error && error.message || error));
+        notify(String(error && error.message || error), "error");
+      } finally { setBusy(false); }
+    };
+
+    return e("div", { className: "crm-card rounded-xl p-5 mb-4 border border-cyan-500/30 bg-cyan-500/5" },
+      e("div", { className: "flex items-start justify-between gap-3 flex-wrap" },
+        e("div", null,
+          e("h3", { className: "font-bold text-slate-800 dark:text-white flex items-center gap-2" }, e("i", { className: "fas fa-database text-cyan-500" }), "Full Database Migration"),
+          e("p", { className: "text-xs text-slate-500 mt-1 max-w-2xl" }, "One ZIP contains all known collections, original document IDs, transaction references, dates, cashier sessions/history, settings and accessible photos. Download from the old Firebase project, then upload the same ZIP after connecting the system to the new Firebase project.")),
+        e("span", { className: "text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded bg-emerald-500/15 text-emerald-500" }, "Firestore only")
+      ),
+      e("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-3 mt-4" },
+        e("button", { type: "button", disabled: busy, onClick: exportAll, className: "px-4 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-black disabled:opacity-50" }, e("i", { className: "fas fa-file-zipper mr-2" }), busy ? "Working…" : "Download Complete Backup ZIP"),
+        e("button", { type: "button", disabled: busy, onClick: () => inputRef.current && inputRef.current.click(), className: "px-4 py-3 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-black disabled:opacity-50" }, e("i", { className: "fas fa-file-arrow-up mr-2" }), "Upload ZIP & Restore Everything"),
+        e("input", { ref: inputRef, type: "file", accept: ".zip,application/zip", onChange: importFile, className: "hidden" })
+      ),
+      e("label", { className: "mt-3 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 cursor-pointer" },
+        e("input", { type: "checkbox", checked: uploadAssets, onChange: ev => setUploadAssets(ev.target.checked), className: "accent-cyan-600" }),
+        "Upload included photos to the destination Firebase Storage when permitted; otherwise restore embedded photos exactly as data URLs."
+      ),
+      (busy || status) && e("div", { className: "mt-4" },
+        e("div", { className: "h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden" }, e("div", { className: "h-full bg-cyan-500 transition-all", style: { width: Math.max(2, Math.min(100, progress)) + "%" } })),
+        e("p", { className: "text-[11px] text-slate-500 mt-2 break-words" }, status)
+      ),
+      e("p", { className: "text-[10px] text-amber-500 mt-3" }, "For a new free-tier Firebase database, restore is limited by the destination project's daily write quota. If the ZIP contains more records than the available quota, the importer stops safely and can be run again after reset using the same ZIP and document IDs.")
+    );
+  };
+})();
+</script>
+
 
   <style id="imms-final-responsive-pos-sales">
     /* Final responsive POS + Sales content layout. Header/sidebar untouched. */
@@ -3107,7 +3302,7 @@ const IMMS_PRODUCT_CACHE_KEY="imms_products_cache_v2",IMMS_PRODUCT_CACHE_MAX_AGE
 function IMMS_READ_PRODUCT_CACHE(){try{const raw=localStorage.getItem(IMMS_PRODUCT_CACHE_KEY);if(!raw)return[];const parsed=JSON.parse(raw),saved=Number(parsed.savedAt)||0;if(!saved||Date.now()-saved>IMMS_PRODUCT_CACHE_MAX_AGE)return[];return Array.isArray(parsed.items)?parsed.items.map(row=>({...row,__immsCached:!0})):[]}catch(_e){return[]}}
 function IMMS_WRITE_PRODUCT_CACHE(rows){if(!Array.isArray(rows))return;const compact=rows.map(row=>{const copy={...row},img=String(copy.image_url||"");delete copy.__immsCached;if(img.startsWith("data:")&&img.length>18e4)copy.image_url="";return copy});try{localStorage.setItem(IMMS_PRODUCT_CACHE_KEY,JSON.stringify({savedAt:Date.now(),items:compact}))}catch(_e){try{localStorage.setItem(IMMS_PRODUCT_CACHE_KEY,JSON.stringify({savedAt:Date.now(),items:compact.map(row=>({...row,image_url:""}))}))}catch(_e2){}}}
 function App(){const[IMMS_sharedQueueRevision,IMMS_setSharedQueueRevision]=useState(0),[B,V]=useState(()=>{try{const v=localStorage.getItem("imms_user");return v?JSON.parse(v):null}catch{return null}
-}),[F,U]=useState(()=>localStorage.getItem("imms_role")||null),[$,q]=useState(!0),[h,A]=useState("dashboard"),[p,L]=useState(window.innerWidth>768),[b,k]=useState(null),[T,C]=useState(null),[O,t]=useState(null),[w,x]=useState([]),[u,g]=useState(()=>IMMS_READ_PRODUCT_CACHE()),[P,i]=useState([]),[S,f]=useState([]),[_,s]=useState([]),[j,c]=useState([]),[E,D]=useState([]),[H,I]=useState([]),[M,z]=useState([]),[o,l]=useState([]),[N,a]=useState([]),[R,r]=useState([]),[X,d]=useState([]),[G,Z]=useState([]),[de,xe]=useState([]),[y,K]=useState([]),[te,ie]=useState([]),[ue,he]=useState([]),[Se,ke]=useState([]),[we,Ee]=useState([]),[Ne,Re]=useState([]),[creditTransactions,setCreditTransactions]=useState([]),[lowStockFocus,setLowStockFocus]=useState(null),[m,W]=useState(()=>{const base={systemName:"IMMS Moto",systemLogo:"",bookingTerms:"By submitting this booking, you agree to our terms of service.",laborMechanicSplit:70,laborShopSplit:30,roles:["Cashier","Mechanic","Inventory Staff","Manager","Admin"]};try{return{...base,...(window.IMMS_getCachedBrandSettings?window.IMMS_getCachedBrandSettings():{})}}catch(_e){return base}}),Q=(v,Y="success")=>{k({msg:v,type:Y}),setTimeout(()=>k(null),3e3)},ee=(v,Y)=>{B&&db.collection("audit_logs").add({user:B.username,role:F,action:v,details:Y,timestamp:(new Date).toISOString()})},ce=useMemo(()=>(m.roles||["Admin","Manager","Cashier","Mechanic","Inventory Staff"]).map(Y=>typeof Y=="string"?Y==="Admin"?{name:"Admin",tabs:["all"],requirePasscode:!1}:Y==="Manager"?{name:"Manager",tabs:["all"],requirePasscode:!1}:{name:Y,tabs:["dashboard","pos","pos_service","crm"],requirePasscode:!0}:Y),[m.roles]),fe=useMemo(()=>F==="Admin"?{name:"Admin",tabs:["all"],requirePasscode:!1}:ce.find(v=>v.name===F)||{name:F,tabs:[],
+}),[F,U]=useState(()=>localStorage.getItem("imms_role")||null),[$,q]=useState(!0),[h,A]=useState("dashboard"),[p,L]=useState(window.innerWidth>768),[b,k]=useState(null),[T,C]=useState(null),[O,t]=useState(null),[w,x]=useState([]),[u,g]=useState(()=>IMMS_READ_PRODUCT_CACHE()),[P,i]=useState([]),[S,f]=useState([]),[_,s]=useState([]),[j,c]=useState([]),[E,D]=useState([]),[H,I]=useState([]),[M,z]=useState([]),[o,l]=useState([]),[N,a]=useState([]),[R,r]=useState([]),[X,d]=useState([]),[G,Z]=useState([]),[de,xe]=useState([]),[y,K]=useState([]),[te,ie]=useState([]),[ue,he]=useState([]),[Se,ke]=useState([]),[we,Ee]=useState([]),[Ne,Re]=useState([]),[creditTransactions,setCreditTransactions]=useState([]),[lowStockFocus,setLowStockFocus]=useState(null),[m,W]=useState(()=>{const base={systemName:"IMMS Moto",systemLogo:"",bookingTerms:"By submitting this booking, you agree to our terms of service.",laborMechanicSplit:70,laborShopSplit:30,roles:["Cashier","Mechanic","Inventory Staff","Manager","Admin"]};try{return{...base,...(window.IMMS_getCachedBrandSettings?window.IMMS_getCachedBrandSettings():{})}}catch(_e){return base}}),Q=(v,Y="success")=>{k({msg:v,type:Y}),setTimeout(()=>k(null),3e3)},ee=(v,Y)=>{B&&window.IMMS_WRITE_SAVER&&window.IMMS_WRITE_SAVER.logAudit(db,B,F,v,Y)},ce=useMemo(()=>(m.roles||["Admin","Manager","Cashier","Mechanic","Inventory Staff"]).map(Y=>typeof Y=="string"?Y==="Admin"?{name:"Admin",tabs:["all"],requirePasscode:!1}:Y==="Manager"?{name:"Manager",tabs:["all"],requirePasscode:!1}:{name:Y,tabs:["dashboard","pos","pos_service","crm"],requirePasscode:!0}:Y),[m.roles]),fe=useMemo(()=>F==="Admin"?{name:"Admin",tabs:["all"],requirePasscode:!1}:ce.find(v=>v.name===F)||{name:F,tabs:[],
 requirePasscode:!0},[F,ce]),ae=v=>fe.tabs.includes("all")||fe.tabs.includes(v)||F==="Admin",tabOrder=["dashboard","pos","pos_service","quotations","appointments","bookings","alerts","crm","inventory","bundles","brands_models","services_list","warranty","backjobs","rma","pre_orders","credits","expenses","hr","attendance","analytics","labor_report","users","settings","audit"],firstAllowed=F==="Admin"||fe.tabs.includes("all")?"dashboard":tabOrder.find(v=>fe.tabs.includes(v))||null,ve=ae(h)?h:firstAllowed,goView=v=>{ae(v)?A(v):firstAllowed&&A(firstAllowed)},ne=(v,Y,le=!1)=>{const ge=F==="Admin"?!1:fe.requirePasscode||le;C({message:v,onConfirm:Y,requirePasscode:ge})},e=(v,Y,le="",ge=!1)=>{const Ce=F==="Admin"?!1:fe.requirePasscode||ge;t({message:v,onConfirm:Y,defaultValue:le,requirePasscode:Ce})};return useEffect(()=>{const refresh=()=>IMMS_setSharedQueueRevision(value=>value+1);window.addEventListener("imms-shared-sheet-changed",refresh);return()=>window.removeEventListener("imms-shared-sheet-changed",refresh)},[]),useEffect(()=>{if(!B)return;if(firstAllowed&&h!==firstAllowed&&!ae(h))A(firstAllowed)},[B,F,fe,h,firstAllowed]),useEffect(()=>{(async()=>{if(!B)return;const uid=IMMS_USER_ID(B);if(!uid)return;if(sessionStorage.getItem("isRegisterOpen")==="true"){sessionStorage.setItem("isRegisterChecked","true");return}try{const R=await IMMS_API("resumeCashierSession",{userId:String(uid)});if(R&&R.success&&R.data&&R.data.open){sessionStorage.setItem("isRegisterOpen","true");sessionStorage.setItem("activeSessionId",R.data.sessionId);sessionStorage.setItem("activeRegisterOwnerId",String(uid));try{window.dispatchEvent(new CustomEvent("imms_cashier_resumed",{detail:{sessionId:R.data.sessionId}}))}catch(_){}Q("Welcome back! Your cashier session was resumed.","success")}}catch(e){}finally{sessionStorage.setItem("isRegisterChecked","true");try{window.dispatchEvent(new CustomEvent("imms_cashier_checked"))}catch(_){}}})()},[B]),useEffect(()=>{const recheck=async()=>{if(!B)return;const uid=IMMS_USER_ID(B);if(!uid)return;try{const R=await IMMS_API("resumeCashierSession",{userId:String(uid)});if(R&&R.success){if(R.data&&R.data.open){sessionStorage.setItem("isRegisterOpen","true");sessionStorage.setItem("activeSessionId",R.data.sessionId);sessionStorage.setItem("activeRegisterOwnerId",String(uid));try{window.dispatchEvent(new CustomEvent("imms_cashier_resumed",{detail:{
 sessionId:R.data.sessionId}}))}catch(_){}}else{try{window.dispatchEvent(new CustomEvent("imms_cashier_checked"))}catch(_){}}}}catch(_){}};const h=()=>{if(!document.hidden)recheck()};window.addEventListener("focus",h);document.addEventListener("visibilitychange",h);return()=>{window.removeEventListener("focus",h);document.removeEventListener("visibilitychange",h)}},[B]),useEffect(()=>{const setters={users:x,products:g,services_list:i,bundles:f,brands:s,motorcycle_models:c,inventory_logs:D,sales:I,service_orders:z,employees:l,attendance_logs:a,payroll_logs:r,bookings:d,customers:Z,backjobs:K,rma_returns:ie,pre_orders:he,expenses:ke,customer_credits:Ee,appointments:Re,credit_transactions:setCreditTransactions},subs=window.__IMMS_LIVE_SUBS||(window.__IMMS_LIVE_SUBS={}),start=le=>{if(!le||subs[le]||!setters[le])return;(()=>{const applySnapshot=Ce=>{if(Ce&&Ce.metadata&&Ce.metadata.hasPendingWrites&&["products","sales","customer_credits"].includes(le))return;const rows=Ce.docs.map(De=>({id:De.id,...De.data()}));setters[le](rows);le==="products"&&IMMS_WRITE_PRODUCT_CACHE(rows)},onError=Ce=>console.error("IMMS data listener failed:",le,Ce);subs[le]=["products","sales","customer_credits"].includes(le)?db.collection(le).onSnapshot({includeMetadataChanges:!0},applySnapshot,onError):db.collection(le).onSnapshot(applySnapshot,onError)})()};if(!subs.__settings)subs.__settings=db.collection("settings").doc("system").onSnapshot(le=>{if(!le.exists)return;const ge=le.data()||{};W(Ce=>({...Ce,...ge}));try{window.IMMS_applyBranding&&window.IMMS_applyBranding(ge)}catch(_e){}},le=>console.error("IMMS settings listener failed:",le));const core=B?["products","employees","customers"]:[],byView={dashboard:["sales","service_orders","customer_credits","payroll_logs","pre_orders","credit_transactions"],quotations:["brands","motorcycle_models"],pos:["bundles","brands","motorcycle_models"],pos_service:["services_list"],appointments:["appointments","services_list"],crm:["sales","service_orders","brands","motorcycle_models"],inventory:["brands","motorcycle_models","inventory_logs"],bundles:["bundles"],brands_models:["brands","motorcycle_models"],services_list:["services_list"],warranty:[],rma:["rma_returns"],pre_orders:["pre_orders"],credits:["customer_credits"],hr:["attendance_logs","payroll_logs"],attendance:["attendance_logs"],analytics:["sales","expenses","payroll_logs"],expenses:["sales","expenses","payroll_logs"],labor_report:["payroll_logs"],users:["users"],backjobs:["backjobs"]};if(!B){Object.keys(subs).filter(le=>le!=="__settings").forEach(le=>{try{typeof subs[le]==="function"&&subs[le]()}catch(_e){}delete subs[le]});return}const requested=[...new Set(core.concat(byView[ve]||[]))];requested.includes("products")&&start("products");const deferred=requested.filter(le=>le!=="products");let dataTimer=deferred.length?setTimeout(()=>deferred.forEach(start),150):null;return()=>{dataTimer!=null&&clearTimeout(dataTimer)}},[ve,B?IMMS_USER_ID(B):""]),useEffect(()=>()=>{const subs=window.__IMMS_LIVE_SUBS||{};Object.keys(subs).forEach(le=>{try{typeof subs[le]==="function"&&subs[le]()}catch(_e){}});window.__IMMS_LIVE_SUBS={}},[]),useEffect(()=>{$?document.documentElement.classList.add("dark"):document.documentElement.classList.remove("dark")},[$]),useEffect(()=>{if(!window.__apptAlerted)window.__apptAlerted={rem:{},over:{}};const _AL=window.__apptAlerted;const _beep=(freq,dur,type,vol)=>{try{const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;if(!window.__audioCtx)window.__audioCtx=new AC();const ctx=window.__audioCtx;if(ctx.state==="suspended")ctx.resume();const o=ctx.createOscillator(),g=ctx.createGain();o.type=type||"sine";o.frequency.value=freq;o.connect(g);g.connect(ctx.destination);const t=ctx.currentTime;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol||0.25,t+0.02);g.gain.exponentialRampToValueAtTime(0.0001,t+(dur||0.3));o.start(t);o.stop(t+(dur||0.3))}catch(_e){}};const _chime=()=>{_beep(880,0.25,"sine",0.2);setTimeout(()=>_beep(1175,0.3,"sine",0.2),180)};const _alarm=()=>{_beep(660,0.2,"square",0.18);setTimeout(()=>_beep(660,0.2,"square",0.18),260);setTimeout(()=>_beep(523,0.35,"square",0.18),520)};const _parse=(bk)=>{const ds=String(bk.date||"").trim(),ts=String(bk.time||"").trim();const dm=ds.match(/(\d{4})-(\d{2})-(\d{2})/);if(!dm)return null;let hh=0,mi=0;const tm=ts.match(/(\d{1,2}):(\d{2})\s*([AaPp][Mm])?/);if(tm){hh=+tm[1];mi=+tm[2];const ap=(tm[3]||"").toUpperCase();if(ap==="PM"&&hh<12)hh+=12;if(ap==="AM"&&hh===12)hh=0;}return new Date(+dm[1],+dm[2]-1,+dm[3],hh,mi,0);};const _check=()=>{const now=Date.now();for(const bk of (Ne||[])){const st=String(bk.status||"").toLowerCase();if(st==="completed"||st==="cancelled")continue;const dt=_parse(bk);if(!dt)continue;const t=dt.getTime();const _nm=bk.fullName||bk.customerName||"Customer";const _cd=bk.code||bk.id;if(now>=t-15*60000&&now<t&&!_AL.rem[bk.id]){_AL.rem[bk.id]=1;_chime();Q("\u23f0 Paalala: "+_nm+" ("+_cd+") \u2014 appointment in ~15 min ("+(bk.time||"")+")","info");var _rem=bk.email||bk.customerEmail;if(_rem){IMMS_API("sendReminderEmail",{email:_rem,fullName:_nm,code:_cd,date:bk.date,time:bk.time,serviceType:bk.serviceType||"",bookingLink:IMMS_BOOKING_LINK})}}if(now>t+60*60000&&now<t+6*60*60000&&(st==="pending"||st==="confirmed")&&!_AL.over[bk.id]){_AL.over[bk.id]=1;_alarm();Q("\u26a0\ufe0f No-show: "+_nm+" ("+_cd+") \u2014 1 hour past schedule ("+(bk.time||"")+")","error")}}};_check();const _iid=setInterval(_check,30000);return ()=>clearInterval(_iid)},[Ne]),useEffect(()=>{const _parseBk=(bk)=>{const ds=String(bk.date||"").trim(),ts=String(bk.time||"").trim();const dm=ds.match(/(\d{4})-(\d{2})-(\d{2})/);if(!dm)return null;let hh=0,mi=0;const tm=ts.match(/(\d{1,2}):(\d{2})\s*([AaPp][Mm])?/);if(tm){hh=+tm[1];mi=+tm[2];const ap=(tm[3]||"").toUpperCase();if(ap==="PM"&&hh<12)hh+=12;if(ap==="AM"&&hh===12)hh=0;}return new Date(+dm[1],+dm[2]-1,+dm[3],hh,mi,0);};const _run=async()=>{try{const now=Date.now(),GRACE=60*60*1000;for(const bk of (Ne||[])){const st=String(bk.status||"").toLowerCase();if(st!=="pending"&&st!=="confirmed")continue;if(bk.autoCancelled)continue;const dt=_parseBk(bk);if(!dt)continue;if(now<=dt.getTime()+GRACE)continue;try{await db.collection("appointments").doc(bk.id).update({status:"Cancelled",autoCancelled:!0,cancelledAt:(new Date).toISOString(),cancelReason:"No-show: did not arrive within 1 hour of the scheduled time"});const _em=bk.email||bk.customerEmail;if(_em&&!bk.noShowEmailSentAt){try{await IMMS_API("sendNoShowEmail",{email:_em,fullName:bk.fullName||bk.customerName||"",code:bk.code||bk.id,date:bk.date,time:bk.time,bookingLink:IMMS_BOOKING_LINK});await db.collection("appointments").doc(bk.id).update({noShowEmailSentAt:(new Date).toISOString()})}catch(_ee){}}}catch(_e){}}}catch(_e){}};_run();const _id=setInterval(_run,5*60*1000);return ()=>clearInterval(_id)},[Ne]),useEffect(()=>{const openDrawer=()=>L(!0);window.addEventListener("imms-open-drawer",openDrawer);return()=>window.removeEventListener("imms-open-drawer",openDrawer)},[]),useEffect(()=>{const v=()=>{window.innerWidth<768?L(!1):L(!0)};return window.addEventListener("resize",v),()=>window.removeEventListener("resize",v)},[]),!B?React.createElement(LoginView,{onLogin:(v,Y)=>{sessionStorage.removeItem("isRegisterOpen"),sessionStorage.removeItem("activeSessionId"),sessionStorage.removeItem("activeRegisterOwnerId"),sessionStorage.removeItem("isRegisterChecked"),V(v),U(Y),localStorage.setItem("imms_user",JSON.stringify(v)),
 localStorage.setItem("imms_role",Y),ee("LOGIN","User logged in")},setView:A,notify:Q,settings:m,darkMode:$}):React.createElement("div",{className:"flex h-screen overflow-hidden bg-slate-50 dark:bg-[#0b101e] text-slate-800 dark:text-slate-200 transition-colors duration-300"},p&&window.innerWidth<768&&React.createElement("div",{className:"fixed inset-0 bg-black/60 z-30",onClick:()=>L(!1)}),React.createElement("aside",{className:`imms-app-sidebar ${p?"translate-x-0 w-64":"-translate-x-full w-0 md:translate-x-0 md:w-20"} fixed md:static inset-y-0 left-0 flex flex-col bg-white dark:bg-[#111827] border-r border-slate-200 dark:border-[#1f2937] z-40 shadow-sm transition-all duration-300 overflow-hidden`},React.createElement("div",{className:"min-h-[80px] py-3 flex items-center justify-between px-4 border-b border-slate-200 dark:border-[#1f2937] shrink-0"},p&&React.createElement("div",{className:"flex items-center gap-3 animate-fade-in flex-1 min-w-0 pr-2"},m.systemLogo?React.createElement("img",{src:m.systemLogo,loading:"eager",decoding:"async",fetchPriority:"high",className:"h-14 w-14 object-contain rounded drop-shadow-md shrink-0"}):React.createElement("i",{className:"fas fa-motorcycle text-3xl text-blue-500 shrink-0"}),React.createElement("span",{className:"font-black text-[12px] text-blue-600 dark:text-blue-500 leading-tight line-clamp-2"},m.systemName||"IMMS Moto")),React.createElement("button",{onClick:()=>L(!p),className:"p-2 text-slate-500 hover:text-blue-500 outline-none transition-colors shrink-0"},React.createElement("i",{
@@ -3172,10 +3367,10 @@ paymentSnap.docs.forEach(doc=>{const payment=doc.data()||{},paymentStatus=String
 const initialFunds=round(Math.max(0,Number(sessionData.initialFunds)||0)),cashInTotal=round(total),expectedDrawerTotal=round(initialFunds+cashInTotal),result={total:expectedDrawerTotal,initialFunds,cashInTotal,count,posTotal:round(posTotal),posProductSalesTotal:round(posProductSalesTotal),posShopShareTotal:round(posShopShareTotal),posCount,orderReservationTotal:round(orderReservationTotal),orderReservationCount,creditCollectionTotal:round(creditCollectionTotal),creditCollectionCount,creditSalesExcludedTotal:round(creditSalesExcludedTotal),creditProductSalesExcludedTotal:round(creditProductSalesExcludedTotal),creditShopShareExcludedTotal:round(creditShopShareExcludedTotal),creditSalesExcludedCount,sessionProductSalesTotal:round(sessionProductSalesTotal),sessionServiceRevenueTotal:round(sessionServiceRevenueTotal),sessionShopShareTotal:round(sessionShopShareTotal),matchedSalesCount,sessionStartedAt:startedAt,sessionOwnerName:sessionData.openedByName||sessionData.openedBy||IMMS_POS_USER_NAME,aggregateVersion:2,calculatedAt:(new Date).toISOString()};
 window.IMMS_CASHIER_CACHE_RESULT&&window.IMMS_CASHIER_CACHE_RESULT(Z,result);
 try{await L.collection("cashier_sessions").doc(Z).set({aggregateVersion:2,aggregateUpdatedAt:result.calculatedAt,processedAmountTotal:result.cashInTotal,salesTotal:result.cashInTotal,posProcessedTotal:result.posTotal,posProductSalesTotal:result.posProductSalesTotal,posShopShareTotal:result.posShopShareTotal,orderReservationProcessedTotal:result.orderReservationTotal,creditCollectionProcessedTotal:result.creditCollectionTotal,creditSalesExcludedTotal:result.creditSalesExcludedTotal,creditProductSalesExcludedTotal:result.creditProductSalesExcludedTotal,creditShopShareExcludedTotal:result.creditShopShareExcludedTotal,creditSalesExcludedCount:result.creditSalesExcludedCount,sessionProductSalesTotal:result.sessionProductSalesTotal,sessionServiceRevenueTotal:result.sessionServiceRevenueTotal,sessionShopShareTotal:result.sessionShopShareTotal,transactionCount:result.count,posTransactionCount:result.posCount,orderReservationTransactionCount:result.orderReservationCount,creditCollectionTransactionCount:result.creditCollectionCount,matchedSalesCount:result.matchedSalesCount},{merge:!0})}catch(syncErr){console.warn("Cashier aggregate backfill skipped:",syncErr)}
-return result};const IMMS_emptyCloseResult={total:0,initialFunds:0,cashInTotal:0,count:0,posTotal:0,posProductSalesTotal:0,posShopShareTotal:0,posCount:0,orderReservationTotal:0,orderReservationCount:0,creditCollectionTotal:0,creditCollectionCount:0,creditSalesExcludedTotal:0,creditProductSalesExcludedTotal:0,creditShopShareExcludedTotal:0,creditSalesExcludedCount:0,sessionProductSalesTotal:0,sessionServiceRevenueTotal:0,sessionShopShareTotal:0,matchedSalesCount:0},IMMS_applyCloseResult=result=>{const safe=result||IMMS_emptyCloseResult;setCloseBreakdown(safe);setCloseBreakdownUpdatedAt(Date.now());Se("₱"+Number(safe.total||0).toLocaleString("en-PH",{minimumFractionDigits:2,maximumFractionDigits:2}))};useEffect(()=>{if(!Z)return;const cached=window.IMMS_CASHIER_GET_CACHED_RESULT&&window.IMMS_CASHIER_GET_CACHED_RESULT(Z);cached&&IMMS_applyCloseResult(cached)},[Z]);const IMMS_openCloseRegister=async(forceReconcile=!1)=>{ue(!0);setCloseSalesError("");if(!closeBreakdown)IMMS_applyCloseResult(IMMS_emptyCloseResult);const isFresh=closeBreakdown&&Date.now()-closeBreakdownUpdatedAt<60000;if(isFresh&&!forceReconcile)return;setCloseSalesLoading(!0);try{const result=await IMMS_loadRegisterProcessedAmount(forceReconcile);IMMS_applyCloseResult(result)}catch(err){const message=err&&err.message?err.message:"Unable to verify the current cashier totals.";setCloseSalesError(message);b(message,"error")}finally{setCloseSalesLoading(!1)}},Re=async n=>{n.preventDefault();if(openingRegister)return;const J=Ee(xe);if(xe===""||isNaN(J)||J<0)return b("Please enter a valid initial fund amount.","error");if(!L)return b("Database is unavailable.","error");const uid=IMMS_USER_ID(RU),lockKey=IMMS_CASHIER_OWNER_KEY(RU);if(!uid||!lockKey)return b("Unable to identify the logged-in cashier.","error");setOpeningRegister(!0);const cachedOwner=String(sessionStorage.getItem("activeRegisterOwnerId")||""),cachedSession=String(sessionStorage.getItem("activeSessionId")||"");if(sessionStorage.getItem("isRegisterOpen")==="true"&&cachedOwner===uid&&cachedSession){de(cachedSession);G(!0);sPc(!0);setOpeningRegister(!1);b("Existing cashier session resumed. The new fund entry was not added.","success");IMMS_SET_ACTIVE_CASHIER_LOCK(L,RU,cachedSession).catch(()=>{});return}const lockRef=L.collection("cashier_active_sessions").doc(lockKey),newSessionRef=L.collection("cashier_sessions").doc(),openedAt=(new Date).toISOString(),sessionPayload={openedBy:T,openedByUserId:uid,openedByName:IMMS_POS_USER_NAME,ownerKey:lockKey,initialFunds:J,initialFundsExcluded:!1,processedAmountTotal:0,salesTotal:0,posProcessedTotal:0,posProductSalesTotal:0,posShopShareTotal:0,orderReservationProcessedTotal:0,creditCollectionProcessedTotal:0,transactionCount:0,posTransactionCount:0,orderReservationTransactionCount:0,creditCollectionTransactionCount:0,closeCalculation:"AUTO_ACCOUNT_SESSION_PRODUCT_SALES_SHOP_SHARE_ORDER_RESERVATION_CREDIT_COLLECTION",timestamp:openedAt,status:"Open",openRequestId:`${uid}:${openedAt}`,aggregateVersion:2,aggregateUpdatedAt:openedAt};const batch=L.batch();batch.set(newSessionRef,sessionPayload);batch.set(lockRef,{sessionId:newSessionRef.id,ownerId:uid,ownerName:IMMS_POS_USER_NAME,status:"Open",updatedAt:openedAt});const commitPromise=batch.commit();sessionStorage.setItem("isRegisterOpen","true");sessionStorage.setItem("isRegisterChecked","true");sessionStorage.setItem("activeSessionId",newSessionRef.id);sessionStorage.setItem("activeRegisterOwnerId",uid);de(newSessionRef.id);G(!0);sPc(!0);const openingTotals=window.IMMS_CASHIER_RESULT_FROM_SESSION(sessionPayload);IMMS_applyCloseResult(openingTotals);window.IMMS_CASHIER_CACHE_RESULT&&window.IMMS_CASHIER_CACHE_RESULT(newSessionRef.id,openingTotals);const optimisticHistory={id:newSessionRef.id,...sessionPayload};te(rows=>{const next=[optimisticHistory,...rows.filter(row=>row.id!==newSessionRef.id)].slice(0,15);try{localStorage.setItem("imms_cashier_history_"+(uid||"anon"),JSON.stringify(next))}catch(_e){}return next});const watchdog=setTimeout(()=>{setOpeningRegister(!1);b("Register opened. Cloud sync is finishing in the background.","info")},2500);try{await commitPromise;clearTimeout(watchdog);setOpeningRegister(!1);try{k("OPEN_REGISTER",`Opened register with ₱${J}`)}catch(_e){}b("Cashier Register Opened!","success")}catch(err){clearTimeout(watchdog);console.error("Open register failed:",err);if(window.IMMS_OFFLINE_POS&&window.IMMS_OFFLINE_POS.isFallbackError(err)){window.IMMS_OFFLINE_POS.saveLocalSession(newSessionRef.id,sessionPayload);setOpeningRegister(!1);b("Cashier Register Opened. Google Sheets will temporarily receive transactions while Firestore is unavailable.","success");return}const stillCurrent=sessionStorage.getItem("activeSessionId")===newSessionRef.id;if(stillCurrent){sessionStorage.removeItem("isRegisterOpen");sessionStorage.removeItem("activeSessionId");sessionStorage.removeItem("activeRegisterOwnerId");G(!1);de(null);sPc(!0)}setOpeningRegister(!1);b(err&&err.message?err.message:"Failed to open register.","error")}},m=async n=>{n.preventDefault();try{if(!Z)return b("No active cashier session found.","error");if(window.IMMS_OFFLINE_POS&&window.IMMS_OFFLINE_POS.pendingCount()>0)return b("Cannot close the register yet: pending offline sales must be synced first. Use SYNC NOW when Firebase is available.","error");setCloseSalesLoading(!0),setCloseSalesError("");const result=closeBreakdown&&Date.now()-closeBreakdownUpdatedAt<30000?closeBreakdown:await IMMS_loadRegisterProcessedAmount();IMMS_applyCloseResult(result);const closedAt=(new Date).toISOString();const sessionRef=L.collection("cashier_sessions").doc(Z),lockKey=IMMS_CASHIER_OWNER_KEY(RU),closeData={actualCash:result.total,expectedCash:result.total,initialFunds:result.initialFunds,cashInTotal:result.cashInTotal,processedAmountTotal:result.cashInTotal,salesTotal:result.cashInTotal,posProcessedTotal:result.posTotal,posProductSalesTotal:result.posProductSalesTotal,posShopShareTotal:result.posShopShareTotal,orderReservationProcessedTotal:result.orderReservationTotal,creditCollectionProcessedTotal:result.creditCollectionTotal,creditSalesExcludedTotal:result.creditSalesExcludedTotal,creditSalesExcludedCount:result.creditSalesExcludedCount,sessionProductSalesTotal:result.sessionProductSalesTotal,sessionServiceRevenueTotal:result.sessionServiceRevenueTotal,sessionShopShareTotal:result.sessionShopShareTotal,transactionCount:result.count,posTransactionCount:result.posCount,orderReservationTransactionCount:result.orderReservationCount,creditCollectionTransactionCount:result.creditCollectionCount,closeCalculation:"AUTO_ACCOUNT_SESSION_PRODUCT_SALES_SHOP_SHARE_ORDER_RESERVATION_CREDIT_COLLECTION",closedByUserId:IMMS_POS_USER_ID,closedByName:IMMS_POS_USER_NAME,closedAt:closedAt,status:"Closed"};try{const closeBatch=L.batch();closeBatch.update(sessionRef,closeData);lockKey&&closeBatch.delete(L.collection("cashier_active_sessions").doc(lockKey));await closeBatch.commit()}catch(lockErr){console.warn("Cashier lock cleanup failed; closing session directly.",lockErr);await sessionRef.update(closeData)};k("CLOSE_REGISTER",`Closed account register with Expected Drawer: \u20B1${result.total} (Initial Fund \u20B1${result.initialFunds} + Cash In \u20B1${result.cashInTotal}) | Product Sales + Shop Share \u20B1${result.posTotal} (Products \u20B1${result.posProductSalesTotal} | Shop Share \u20B1${result.posShopShareTotal}) | Orders/Reservations \u20B1${result.orderReservationTotal} | Credit Collections \u20B1${result.creditCollectionTotal} (${result.count} transaction${result.count===1?"":"s"})`),b("Register Closed Successfully. Product Sales, Shop Share, Order, Reservation, and Credit Collection amounts for this logged-in account and active session were included.","success"),sessionStorage.removeItem("isRegisterOpen"),sessionStorage.removeItem("activeSessionId"),sessionStorage.removeItem("activeRegisterOwnerId"),window.IMMS_CASHIER_CLEAR_CACHED_RESULT&&window.IMMS_CASHIER_CLEAR_CACHED_RESULT(Z),ue(!1),G(!1),de(null),y(""),Se(""),setCloseBreakdown(null),setCloseBreakdownUpdatedAt(0),te(rows=>{const next=rows.map(row=>row.id===Z?{...row,...closeData}:row);try{localStorage.setItem("imms_cashier_history_"+(IMMS_POS_USER_ID||"anon"),JSON.stringify(next.slice(0,15)))}catch(_e){}return next})}catch(err){const message=err&&err.message?err.message:"Failed to close register.";setCloseSalesError(message),b(message,"error")}finally{setCloseSalesLoading(!1)}},W=useMemo(()=>{const query=t.trim().toLowerCase(),tokens=query.split(/\s+/).filter(Boolean);let n=(V||[]).filter(J=>{if(tokens.length===0)return!0;const vehicles=(J.compatibleVehicles||[]).map(v=>`${v.brand||""} ${v.model||""}`).join(" "),tags=Array.isArray(J.tags)?J.tags.join(" "):J.tags||"",haystack=[J.name,J.sku,J.partNumber,J.barcode,J.category,J.brand,J.keywords,J.searchKeywords,tags,J.description,J.sizeVariant,J.supplier,J.unit,J.compatType,J.compatBrand,J.compatModel,J.price,Number(J.price||0).toFixed(2),vehicles].map(v=>String(v||"")).join(" ").toLowerCase();return tokens.every(token=>haystack.includes(token))});return i!=="All"&&(n=n.filter(J=>J.compatType==="Universal"||J.compatBrand===i||J.compatibleVehicles&&J.compatibleVehicles.some(se=>se.brand===i))),f!=="All"&&(n=n.filter(J=>J.compatType==="Universal"||J.compatModel===f||J.compatibleVehicles&&J.compatibleVehicles.some(se=>se.model===f))),n},[V,t,i,f]),Q=useMemo(()=>(F||[]).filter(n=>(n.name||"").toLowerCase().includes(t.toLowerCase())),[F,t]),ee=useMemo(()=>(U||[]).filter(n=>n.active&&(n.name||"").toLowerCase().includes(t.toLowerCase())),[U,t]),compatText=n=>n&&n.compatType==="Specific"?((n.compatibleVehicles&&n.compatibleVehicles.length>0?n.compatibleVehicles.map(J=>`${J.brand||""} ${J.model||""}`.trim()).filter(Boolean).join(", "):`${n.compatBrand||""} ${n.compatModel||""}`.trim())||"Specific model"):"UNIVERSAL",showCompat=n=>{const J=compatText(n);b(`${n.name||"Product"} compatibility: ${J}`,"info")},ce=(n,J="part")=>{if(n&&n.__immsCached)return b("Products are shown from cache. Please wait a moment for live stock sync.","info");if(J==="part"&&n.stock<=0)return b("Out of stock!","error");if(J==="bundle"){const se=n.components||[],me=se.length>0?Math.floor(Math.min(...se.map(oe=>{const re=(V||[]).find(be=>be.id===oe.productId);return re?re.stock/oe.qty:0}))):0;if(me<=0)return b("Insufficient inventory components for this bundle!","error");O(oe=>{
+return result};const IMMS_emptyCloseResult={total:0,initialFunds:0,cashInTotal:0,count:0,posTotal:0,posProductSalesTotal:0,posShopShareTotal:0,posCount:0,orderReservationTotal:0,orderReservationCount:0,creditCollectionTotal:0,creditCollectionCount:0,creditSalesExcludedTotal:0,creditProductSalesExcludedTotal:0,creditShopShareExcludedTotal:0,creditSalesExcludedCount:0,sessionProductSalesTotal:0,sessionServiceRevenueTotal:0,sessionShopShareTotal:0,matchedSalesCount:0},IMMS_applyCloseResult=result=>{const safe=result||IMMS_emptyCloseResult;setCloseBreakdown(safe);setCloseBreakdownUpdatedAt(Date.now());Se("₱"+Number(safe.total||0).toLocaleString("en-PH",{minimumFractionDigits:2,maximumFractionDigits:2}))};useEffect(()=>{if(!Z)return;const cached=window.IMMS_CASHIER_GET_CACHED_RESULT&&window.IMMS_CASHIER_GET_CACHED_RESULT(Z);cached&&IMMS_applyCloseResult(cached)},[Z]);const IMMS_openCloseRegister=async(forceReconcile=!1)=>{ue(!0);setCloseSalesError("");if(!closeBreakdown)IMMS_applyCloseResult(IMMS_emptyCloseResult);const isFresh=closeBreakdown&&Date.now()-closeBreakdownUpdatedAt<60000;if(isFresh&&!forceReconcile)return;setCloseSalesLoading(!0);try{const result=await IMMS_loadRegisterProcessedAmount(forceReconcile);IMMS_applyCloseResult(result)}catch(err){const message=err&&err.message?err.message:"Unable to verify the current cashier totals.";setCloseSalesError(message);b(message,"error")}finally{setCloseSalesLoading(!1)}},Re=async n=>{n.preventDefault();if(openingRegister)return;const J=Ee(xe);if(xe===""||isNaN(J)||J<0)return b("Please enter a valid initial fund amount.","error");if(!L)return b("Database is unavailable.","error");const uid=IMMS_USER_ID(RU),lockKey=IMMS_CASHIER_OWNER_KEY(RU);if(!uid||!lockKey)return b("Unable to identify the logged-in cashier.","error");setOpeningRegister(!0);const cachedOwner=String(sessionStorage.getItem("activeRegisterOwnerId")||""),cachedSession=String(sessionStorage.getItem("activeSessionId")||"");if(sessionStorage.getItem("isRegisterOpen")==="true"&&cachedOwner===uid&&cachedSession){de(cachedSession);G(!0);sPc(!0);setOpeningRegister(!1);b("Existing cashier session resumed. The new fund entry was not added.","success");IMMS_SET_ACTIVE_CASHIER_LOCK(L,RU,cachedSession).catch(()=>{});return}const lockRef=L.collection("cashier_active_sessions").doc(lockKey),newSessionRef=L.collection("cashier_sessions").doc(),openedAt=(new Date).toISOString(),sessionPayload={openedBy:T,openedByUserId:uid,openedByName:IMMS_POS_USER_NAME,ownerKey:lockKey,initialFunds:J,initialFundsExcluded:!1,processedAmountTotal:0,salesTotal:0,posProcessedTotal:0,posProductSalesTotal:0,posShopShareTotal:0,orderReservationProcessedTotal:0,creditCollectionProcessedTotal:0,transactionCount:0,posTransactionCount:0,orderReservationTransactionCount:0,creditCollectionTransactionCount:0,closeCalculation:"AUTO_ACCOUNT_SESSION_PRODUCT_SALES_SHOP_SHARE_ORDER_RESERVATION_CREDIT_COLLECTION",timestamp:openedAt,status:"Open",openRequestId:`${uid}:${openedAt}`,aggregateVersion:2,aggregateUpdatedAt:openedAt};const batch=L.batch();batch.set(newSessionRef,sessionPayload);batch.set(lockRef,{sessionId:newSessionRef.id,ownerId:uid,ownerName:IMMS_POS_USER_NAME,status:"Open",updatedAt:openedAt});const commitPromise=batch.commit();sessionStorage.setItem("isRegisterOpen","true");sessionStorage.setItem("isRegisterChecked","true");sessionStorage.setItem("activeSessionId",newSessionRef.id);sessionStorage.setItem("activeRegisterOwnerId",uid);de(newSessionRef.id);G(!0);sPc(!0);const openingTotals=window.IMMS_CASHIER_RESULT_FROM_SESSION(sessionPayload);IMMS_applyCloseResult(openingTotals);window.IMMS_CASHIER_CACHE_RESULT&&window.IMMS_CASHIER_CACHE_RESULT(newSessionRef.id,openingTotals);const optimisticHistory={id:newSessionRef.id,...sessionPayload};te(rows=>{const next=[optimisticHistory,...rows.filter(row=>row.id!==newSessionRef.id)].slice(0,15);try{localStorage.setItem("imms_cashier_history_"+(uid||"anon"),JSON.stringify(next))}catch(_e){}return next});const watchdog=setTimeout(()=>{setOpeningRegister(!1);b("Register opened. Cloud sync is finishing in the background.","info")},2500);try{await commitPromise;clearTimeout(watchdog);setOpeningRegister(!1);try{k("OPEN_REGISTER",`Opened register with ₱${J}`)}catch(_e){}b("Cashier Register Opened!","success")}catch(err){clearTimeout(watchdog);console.error("Open register failed:",err);const stillCurrent=sessionStorage.getItem("activeSessionId")===newSessionRef.id;if(stillCurrent){sessionStorage.removeItem("isRegisterOpen");sessionStorage.removeItem("activeSessionId");sessionStorage.removeItem("activeRegisterOwnerId");G(!1);de(null);sPc(!0)}setOpeningRegister(!1);b(err&&err.message?err.message:"Failed to open register.","error")}},m=async n=>{n.preventDefault();try{if(!Z)return b("No active cashier session found.","error");setCloseSalesLoading(!0),setCloseSalesError("");const result=closeBreakdown&&Date.now()-closeBreakdownUpdatedAt<30000?closeBreakdown:await IMMS_loadRegisterProcessedAmount();IMMS_applyCloseResult(result);const closedAt=(new Date).toISOString();const sessionRef=L.collection("cashier_sessions").doc(Z),lockKey=IMMS_CASHIER_OWNER_KEY(RU),closeData={actualCash:result.total,expectedCash:result.total,initialFunds:result.initialFunds,cashInTotal:result.cashInTotal,processedAmountTotal:result.cashInTotal,salesTotal:result.cashInTotal,posProcessedTotal:result.posTotal,posProductSalesTotal:result.posProductSalesTotal,posShopShareTotal:result.posShopShareTotal,orderReservationProcessedTotal:result.orderReservationTotal,creditCollectionProcessedTotal:result.creditCollectionTotal,creditSalesExcludedTotal:result.creditSalesExcludedTotal,creditSalesExcludedCount:result.creditSalesExcludedCount,sessionProductSalesTotal:result.sessionProductSalesTotal,sessionServiceRevenueTotal:result.sessionServiceRevenueTotal,sessionShopShareTotal:result.sessionShopShareTotal,transactionCount:result.count,posTransactionCount:result.posCount,orderReservationTransactionCount:result.orderReservationCount,creditCollectionTransactionCount:result.creditCollectionCount,closeCalculation:"AUTO_ACCOUNT_SESSION_PRODUCT_SALES_SHOP_SHARE_ORDER_RESERVATION_CREDIT_COLLECTION",closedByUserId:IMMS_POS_USER_ID,closedByName:IMMS_POS_USER_NAME,closedAt:closedAt,status:"Closed"};try{const closeBatch=L.batch();closeBatch.update(sessionRef,closeData);lockKey&&closeBatch.delete(L.collection("cashier_active_sessions").doc(lockKey));await closeBatch.commit()}catch(lockErr){console.warn("Cashier lock cleanup failed; closing session directly.",lockErr);await sessionRef.update(closeData)};k("CLOSE_REGISTER",`Closed account register with Expected Drawer: \u20B1${result.total} (Initial Fund \u20B1${result.initialFunds} + Cash In \u20B1${result.cashInTotal}) | Product Sales + Shop Share \u20B1${result.posTotal} (Products \u20B1${result.posProductSalesTotal} | Shop Share \u20B1${result.posShopShareTotal}) | Orders/Reservations \u20B1${result.orderReservationTotal} | Credit Collections \u20B1${result.creditCollectionTotal} (${result.count} transaction${result.count===1?"":"s"})`),b("Register Closed Successfully. Product Sales, Shop Share, Order, Reservation, and Credit Collection amounts for this logged-in account and active session were included.","success"),sessionStorage.removeItem("isRegisterOpen"),sessionStorage.removeItem("activeSessionId"),sessionStorage.removeItem("activeRegisterOwnerId"),window.IMMS_CASHIER_CLEAR_CACHED_RESULT&&window.IMMS_CASHIER_CLEAR_CACHED_RESULT(Z),ue(!1),G(!1),de(null),y(""),Se(""),setCloseBreakdown(null),setCloseBreakdownUpdatedAt(0),te(rows=>{const next=rows.map(row=>row.id===Z?{...row,...closeData}:row);try{localStorage.setItem("imms_cashier_history_"+(IMMS_POS_USER_ID||"anon"),JSON.stringify(next.slice(0,15)))}catch(_e){}return next})}catch(err){const message=err&&err.message?err.message:"Failed to close register.";setCloseSalesError(message),b(message,"error")}finally{setCloseSalesLoading(!1)}},W=useMemo(()=>{const query=t.trim().toLowerCase(),tokens=query.split(/\s+/).filter(Boolean);let n=(V||[]).filter(J=>{if(tokens.length===0)return!0;const vehicles=(J.compatibleVehicles||[]).map(v=>`${v.brand||""} ${v.model||""}`).join(" "),tags=Array.isArray(J.tags)?J.tags.join(" "):J.tags||"",haystack=[J.name,J.sku,J.partNumber,J.barcode,J.category,J.brand,J.keywords,J.searchKeywords,tags,J.description,J.sizeVariant,J.supplier,J.unit,J.compatType,J.compatBrand,J.compatModel,J.price,Number(J.price||0).toFixed(2),vehicles].map(v=>String(v||"")).join(" ").toLowerCase();return tokens.every(token=>haystack.includes(token))});return i!=="All"&&(n=n.filter(J=>J.compatType==="Universal"||J.compatBrand===i||J.compatibleVehicles&&J.compatibleVehicles.some(se=>se.brand===i))),f!=="All"&&(n=n.filter(J=>J.compatType==="Universal"||J.compatModel===f||J.compatibleVehicles&&J.compatibleVehicles.some(se=>se.model===f))),n},[V,t,i,f]),Q=useMemo(()=>(F||[]).filter(n=>(n.name||"").toLowerCase().includes(t.toLowerCase())),[F,t]),ee=useMemo(()=>(U||[]).filter(n=>n.active&&(n.name||"").toLowerCase().includes(t.toLowerCase())),[U,t]),compatText=n=>n&&n.compatType==="Specific"?((n.compatibleVehicles&&n.compatibleVehicles.length>0?n.compatibleVehicles.map(J=>`${J.brand||""} ${J.model||""}`.trim()).filter(Boolean).join(", "):`${n.compatBrand||""} ${n.compatModel||""}`.trim())||"Specific model"):"UNIVERSAL",showCompat=n=>{const J=compatText(n);b(`${n.name||"Product"} compatibility: ${J}`,"info")},ce=(n,J="part")=>{if(n&&n.__immsCached)return b("Products are shown from cache. Please wait a moment for live stock sync.","info");if(J==="part"&&n.stock<=0)return b("Out of stock!","error");if(J==="bundle"){const se=n.components||[],me=se.length>0?Math.floor(Math.min(...se.map(oe=>{const re=(V||[]).find(be=>be.id===oe.productId);return re?re.stock/oe.qty:0}))):0;if(me<=0)return b("Insufficient inventory components for this bundle!","error");O(oe=>{
 const re=oe.find(be=>be.id===n.id&&be.isBundle);return re&&re.qty>=me?(b(`Maximum possible bundles: ${me}`,"error"),oe):re?oe.map(be=>be.id===n.id&&be.isBundle?{...be,qty:be.qty+1}:be):[...oe,{...n,qty:1,isBundle:!0}]});return}O(se=>{const me=se.find(oe=>oe.id===n.id&&!oe.isBundle);return me?J==="part"&&me.qty>=n.stock?(b("Exceeds stock limit","error"),se):se.map(oe=>oe.id===n.id&&!oe.isBundle?{...oe,qty:oe.qty+1}:oe):[...se,{...n,qty:1,isService:J==="service"}]})},fe=n=>{if(n.preventDefault(),!t.trim())return;const code=t.trim().toLowerCase(),J=(V||[]).find(se=>[se.sku,se.partNumber,se.barcode,se.id].some(value=>String(value||"").trim().toLowerCase()===code));J?(ce(J,"part"),w("")):b("Barcode, SKU, or part number not found!","error")},ae=(n,J,se)=>{const me=!!se,oe=C.find(re=>re.id===n&&!!re.isBundle===me);if(oe){if(!oe.isService&&!me){const re=(V||[]).find(be=>be.id===n);if(re&&J>re.stock)return b("Exceeds stock limit","error")}else if(me){const re=(U||[]).find(be=>be.id===n);if(re){const be=re.components||[],pe=be.length>0?Math.floor(Math.min(...be.map(ye=>{const Pe=(V||[]).find(Be=>Be.id===ye.productId);return Pe?Pe.stock/ye.qty:0}))):0;if(J>pe)return b(`Maximum possible bundles: ${pe}`,"error")}}J<=0?O(re=>re.filter(be=>!(be.id===n&&!!be.isBundle===me))):O(re=>re.map(be=>be.id===n&&!!be.isBundle===me?{...be,qty:J}:be))}},ne=C.reduce((n,J)=>n+(J.price||0)*(J.qty||0),0),e=C.reduce((n,J)=>{if(J.isService)return n;if(J.isBundle){const se=(J.components||[]).reduce((me,oe)=>{const re=(V||[]).find(be=>be.id===oe.productId);return me+((re==null?void 0:re.origPrice)||0)*oe.qty},0);return n+se*J.qty}
 return n+(J.origPrice||0)*J.qty},0),v=g.type==="percent"?ne*((Number(g.val)||0)/100):(Number(g.val)||0),Y=Math.max(0,ne-v),le=C.filter(n=>n.isService).reduce((n,J)=>n+(J.price||0)*(J.qty||0),0),ge=n=>{const J=(n.components||[]).reduce((se,me)=>{const oe=(V||[]).find(re=>re.id===me.productId);return se+(Number(oe==null?void 0:oe.price)||0)*(Number(me.qty)||0)},0);return Math.max(0,(Number(n.price)||0)-J)},Ce=C.filter(n=>n.isBundle).reduce((n,J)=>n+ge(J)*(Number(J.qty)||0),0),De=(n,J,receiptWindow)=>{const se=J==="80mm"?48:32,me=pe=>{if(pe.length>=se)return pe.substring(0,se);const ye=Math.floor((se-pe.length)/2),Pe=se-pe.length-ye;return" ".repeat(ye)+pe+" ".repeat(Pe)},oe=(pe,ye)=>{const Pe=pe.length+ye.length;return Pe>=se?pe.substring(0,se-ye.length-1)+" "+ye:pe+" ".repeat(se-Pe)+ye};let re="";re+=me((p==null?void 0:p.systemName)||"IMMS MOTORSHOP")+`\n`,n.offlinePending&&(re+=me("*** EMERGENCY OFFLINE SALE ***")+`\n`,re+=me("PENDING CLOUD SYNC")+`\n`),re+=me("Transaction: "+n.ref)+`\n`,re+=me("Date: "+new Date(n.timestamp||Date.now()).toLocaleString())+`\n`,re+="-".repeat(se)+`\n`,re+=oe("Item","Total")+`\n`,re+="-".repeat(se)+`\n`,n.items.forEach(pe=>{const Pe=`${pe.qty?`${pe.qty}x `:""}${pe.name}`,Be=`P${((pe.price||0)*(pe.qty||1)).toFixed(2)}`;re+=oe(Pe,Be)+`\n`}),re+="-".repeat(se)+`\n`,re+=oe("TOTAL DUE:",`P${n.total.toFixed(2)}`)+`\n`,n.paymentDetails.mode==="Split"?(re+=oe("Cash:",`P${n.paymentDetails.splitCash.toFixed(2)}`)+`\n`,re+=oe("E-Wallet:",`P${n.paymentDetails.splitGcash.toFixed(2)}`)+`\n`,re+=oe("Total Paid:",`P${(n.amountPaid||0).toFixed(2)}`)+`\n`,re+=oe("Change:",`P${(n.change||0).toFixed(2)}`)+`\n`):["Cash","GCash","Paymaya","Bank"].includes(n.paymentDetails.mode)?(re+=oe("Paid via:",n.paymentDetails.mode)+`\n`,re+=oe("Amount Paid:",`P${(n.amountPaid||0).toFixed(2)}`)+`\n`,re+=oe("Change:",`P${(n.change||0).toFixed(2)}`)+`\n`):re+=oe("Paid via:",n.paymentDetails.mode)+`\n`,re+="-".repeat(se)+`\n`,n.offlinePending&&(re+=me("KEEP THIS RECEIPT")+`\n`,re+=me("Sale will sync when Firebase returns")+`\n`,re+="-".repeat(se)+`\n`),re+=me("Thank you for your business!")+`\n\n\n\n\n`;const receiptHtml='<html><head><title>'+(n.offlinePending?'Offline Receipt':'Receipt')+'</title></head><body style="margin:0;"><pre style="margin:0; font-family: monospace; font-size: 12px;">'+re+"</pre></body></html>",be=receiptWindow&&!receiptWindow.closed?receiptWindow:null;try{localStorage.setItem("imms_last_pos_receipt",JSON.stringify({sale:n,format:J,savedAt:(new Date).toISOString()}))}catch(_e){}if(be)be.document.open(),be.document.write(receiptHtml),be.document.close(),be.focus(),setTimeout(()=>{try{be.print()}finally{setTimeout(()=>{try{be.close()}catch(_e){}},250)}},350);else{const frame=document.createElement("iframe");frame.setAttribute("aria-hidden","true"),frame.style.position="fixed",frame.style.right="0",frame.style.bottom="0",frame.style.width="1px",frame.style.height="1px",frame.style.border="0",frame.style.opacity="0",document.body.appendChild(frame);const doc=frame.contentDocument||frame.contentWindow.document;doc.open(),doc.write(receiptHtml),doc.close(),setTimeout(()=>{try{frame.contentWindow.focus(),frame.contentWindow.print()}catch(_e){b("Receipt saved, but automatic printing was blocked. Use Reprint Last Receipt.","info")}setTimeout(()=>{try{frame.remove()}catch(_e){}},1500)},300)}}
-,Le=async()=>{var n,J;if(C.length===0)return;if(openingRegister)return b("Cashier register is still syncing. Please wait a moment.","info");if(!Z)return b("No active cashier session found. Please reopen the register.","error");if(s==="Credit"&&!z)return b("Please select a registered customer to process a Credit (Utang) transaction.","error");if(C.some(pe=>pe.isService||pe.isBundle)&&!l)return b("Mechanic is required for service items and bundles.","error");let se={mode:s},me=0,oe=0;if(["Cash","GCash","Paymaya","Bank"].includes(s)){const pe=Ee(r);if(!pe||pe<Y)return b("Amount paid is insufficient or empty!","error");if(["GCash","Paymaya","Bank"].includes(s)&&!c)return b("Reference Number is required for E-Payments","error");se.refNum=c,me=pe,oe=me-Y}if(s==="Split"){const pe=Ee(D),ye=Ee(I);if(se.splitCash=pe,se.splitGcash=ye,me=pe+ye,me<Y)return b("Split payment total is less than amount due!","error");oe=me-Y}const re=`TRX-${Math.random().toString(36).substr(2,6).toUpperCase()}`,be=((n=(h||[]).find(pe=>pe.id===z))===null||n===void 0?void 0:n.name)||"Walk-in";if(window.__IMMS_POS_CHECKOUT_BUSY)return b("A payment is already being processed. Please wait.","info");window.__IMMS_POS_CHECKOUT_BUSY=!0;const finishSale=(sale,pendingSync)=>{window.__IMMS_POS_CHECKOUT_BUSY=!1,b("Payment Successful! Receipt is ready."),De(sale,a,null),O([]),P({type:"fixed",val:""}),E(""),H(""),M(""),j("Cash"),o(""),N(""),setHelperId(""),X(""),we(!1),pendingSync&&setOfflineRevision(v=>v+1)};try{const ye=C.map(ve=>ve.isBundle?{...ve,bundleLabor:ge(ve),bundlePartsValue:Math.max(0,(Number(ve.price)||0)-ge(ve))}:ve),Pe=L.collection("sales").doc(),svcTotal=le+Ce,mechInfo=(A||[]).find(Me=>Me.empId===l)||{},helperInfo=(A||[]).find(Me=>Me.empId===helperId)||{},mechPct=mechInfo.laborMechanicSplit!==void 0&&mechInfo.laborMechanicSplit!==null?Number(mechInfo.laborMechanicSplit):70,mechShare=svcTotal*(mechPct/100),shopShare=Math.max(0,svcTotal-mechShare),timestamp=(new Date).toISOString(),Be={ref:re,items:ye,subtotal:ne,origCostTotal:e,discount:v,total:Y,amountPaid:me,processedAmount:s==="Credit"?0:Math.max(0,Y),processedAmountBasis:"NET_SALE_TOTAL",change:oe,paymentDetails:se,customerId:z,customer:be,mechanicId:l,helperId:helperId,helperName:helperInfo.name||"",serviceRevenue:svcTotal,laborTotal:svcTotal,laborMechanicSplit:mechPct,laborShopSplit:100-mechPct,laborMechanicShare:mechShare,laborShopShare:shopShare,timestamp,status:"Completed",source:"POS",cashier:IMMS_POS_USER_NAME,cashierUserId:IMMS_POS_USER_ID,cashierName:IMMS_POS_USER_NAME,cashierRole:T,cashierSessionId:Z},IMMS_productCash=Math.max(0,IMMS__partsSalesFromSale(Be)),IMMS_posCash=s==="Credit"?0:Math.max(0,IMMS_productCash+shopShare),aggregateDelta={processedAmountTotal:IMMS_posCash,salesTotal:IMMS_posCash,posProcessedTotal:IMMS_posCash,posProductSalesTotal:s==="Credit"?0:IMMS_productCash,posShopShareTotal:s==="Credit"?0:shopShare,transactionCount:s==="Credit"?0:1,posTransactionCount:s==="Credit"?0:1,creditSalesExcludedTotal:s==="Credit"?IMMS_productCash+shopShare:0,creditProductSalesExcludedTotal:s==="Credit"?IMMS_productCash:0,creditShopShareExcludedTotal:s==="Credit"?shopShare:0,creditSalesExcludedCount:s==="Credit"?1:0,sessionProductSalesTotal:IMMS_productCash,sessionServiceRevenueTotal:svcTotal,sessionShopShareTotal:shopShare,matchedSalesCount:1},stockMap={};for(const ve of C)if(ve.isBundle){for(const Oe of ve.components||[]){const productId=String(Oe.productId||"");if(productId)stockMap[productId]=(Number(stockMap[productId])||0)-((Number(Oe.qty)||0)*(Number(ve.qty)||1))}}else if(!ve.isService){const productId=String(ve.id||"");if(productId)stockMap[productId]=(Number(stockMap[productId])||0)-(Number(ve.qty)||0)}const stockChanges=Object.keys(stockMap).map(productId=>({productId,delta:Number(stockMap[productId])||0})).filter(row=>row.delta!==0),creditRef=s==="Credit"?L.collection("customer_credits").doc():null,creditData=creditRef?{customerId:z,customerName:be,refId:re,totalAmount:Y,balance:Y,dueDate:new Date(Date.now()+720*60*60*1e3).toISOString(),timestamp,status:"Unpaid"}:null,Fe=le+Ce,payrollRef=Fe>0&&l?L.collection("payroll_logs").doc():null,payrollData=payrollRef?{mechanicId:l,helperId:helperId,helperName:helperInfo.name||"",amount:Fe*((mechInfo.laborMechanicSplit!==void 0&&mechInfo.laborMechanicSplit!==null?Number(mechInfo.laborMechanicSplit):70)/100),type:"POS Service Share",serviceName:[...C.filter(Me=>Me.isService).map(Me=>Me.name),...C.filter(Me=>Me.isBundle&&ge(Me)>0).map(Me=>`${Me.name} (labor)`)].join(", ")||"General Service",refJob:re,timestamp,status:"Pending"}:null,hasSvc=C.some(it=>it.isService||it.isBundle),warrantyRef=hasSvc?L.collection("service_warranty").doc():null,_cust=(h||[]).find(cc=>cc.id===z)||{},_mech=(A||[]).find(mm=>mm.id===l||mm.empId===l),_helper=(A||[]).find(mm=>mm.id===helperId||mm.empId===helperId),_moto=_cust.motorcycles&&_cust.motorcycles[0]?_cust.motorcycles[0]:{},_today=timestamp.slice(0,10),warrantyData=warrantyRef?{fullName:be||"Walk-in",contact:_cust.contact||_cust.phone||"",email:_cust.email||"",address:_cust.address||"",brand:_moto.brand||"",model:_moto.model||"",engineType:_moto.engineType||_moto.displacement||"",plateNo:_moto.plateNo||_moto.plate||"",mileage:_moto.odometer||_moto.mileage||"",underWarranty:"Yes",warrantyType:"Service Warranty",serviceRendered:C.filter(it=>it.isService||it.isBundle).map(it=>it.name).join(", "),lastMechanic:_mech?_mech.name:"",lastHelper:_helper?_helper.name:"",lastServiceDate:_today,jobOrderNo:re,transactionReference:re,transactionRef:re,transactionId:Pe.id,salesId:Pe.id,complaint:"",dateReported:_today,warrantyStatus:"Active",status:"Serviced",priority:"Low",assignedMechanic:_mech?_mech.name:"",assignedHelper:_helper?_helper.name:"",customerId:z||"",source:"POS",autoGenerated:!0,timestamp}:null,offlineRecord={id:Pe.id,transactionRef:re,saleDocId:Pe.id,saleData:Be,sessionId:Z,userId:IMMS_POS_USER_ID,userName:IMMS_POS_USER_NAME,role:T,createdAt:timestamp,receiptFormat:a,stockChanges,aggregateDelta,creditDocId:creditRef?creditRef.id:null,creditData,payrollDocId:payrollRef?payrollRef.id:null,payrollData,warrantyDocId:warrantyRef?warrantyRef.id:null,warrantyData,sessionOpenData:window.IMMS_OFFLINE_POS?window.IMMS_OFFLINE_POS.getLocalSession(Z):null};if(!window.IMMS_OFFLINE_POS||!window.IMMS_OFFLINE_POS.commitSale)throw new Error("Google Sheets failover is unavailable.");const saveResult=await window.IMMS_OFFLINE_POS.commitSale({...offlineRecord,queueMode:"GOOGLE_SHEETS_FAILOVER"},L);finishSale({...Be,backgroundSyncPending:!!saveResult.pendingSync,status:"Completed"},!!saveResult.pendingSync);try{k(saveResult.pendingSync?"CHECKOUT_SHEETS":"CHECKOUT_CLOUD",`Processed ${re} for ₱${Y} via ${s}`)}catch(_e){}setOfflineRevision(v=>v+1)}catch(pe){window.__IMMS_POS_CHECKOUT_BUSY=!1;const msg="PAYMENT NOT SAVED: Firestore and Google Sheets were both unavailable. The cart was kept and no receipt was issued.";console.error(msg,pe),b(msg,"error"),setTimeout(()=>{try{window.alert(msg)}catch(_e){}},50)}}
+,Le=async()=>{var n,J;if(C.length===0)return;if(openingRegister)return b("Cashier register is still syncing. Please wait a moment.","info");if(!Z)return b("No active cashier session found. Please reopen the register.","error");if(s==="Credit"&&!z)return b("Please select a registered customer to process a Credit (Utang) transaction.","error");if(C.some(pe=>pe.isService||pe.isBundle)&&!l)return b("Mechanic is required for service items and bundles.","error");let se={mode:s},me=0,oe=0;if(["Cash","GCash","Paymaya","Bank"].includes(s)){const pe=Ee(r);if(!pe||pe<Y)return b("Amount paid is insufficient or empty!","error");if(["GCash","Paymaya","Bank"].includes(s)&&!c)return b("Reference Number is required for E-Payments","error");se.refNum=c,me=pe,oe=me-Y}if(s==="Split"){const pe=Ee(D),ye=Ee(I);if(se.splitCash=pe,se.splitGcash=ye,me=pe+ye,me<Y)return b("Split payment total is less than amount due!","error");oe=me-Y}const re=`TRX-${Math.random().toString(36).substr(2,6).toUpperCase()}`,be=((n=(h||[]).find(pe=>pe.id===z))===null||n===void 0?void 0:n.name)||"Walk-in";if(window.__IMMS_POS_CHECKOUT_BUSY)return b("A payment is already being processed. Please wait.","info");window.__IMMS_POS_CHECKOUT_BUSY=!0;const finishSale=(sale,pendingSync)=>{window.__IMMS_POS_CHECKOUT_BUSY=!1,b("Payment Successful! Receipt is ready."),De(sale,a,null),O([]),P({type:"fixed",val:""}),E(""),H(""),M(""),j("Cash"),o(""),N(""),setHelperId(""),X(""),we(!1),pendingSync&&setOfflineRevision(v=>v+1)};try{const ye=C.map(ve=>ve.isBundle?{...ve,bundleLabor:ge(ve),bundlePartsValue:Math.max(0,(Number(ve.price)||0)-ge(ve))}:ve),Pe=L.collection("sales").doc(),svcTotal=le+Ce,mechInfo=(A||[]).find(Me=>Me.empId===l)||{},helperInfo=(A||[]).find(Me=>Me.empId===helperId)||{},mechPct=mechInfo.laborMechanicSplit!==void 0&&mechInfo.laborMechanicSplit!==null?Number(mechInfo.laborMechanicSplit):70,mechShare=svcTotal*(mechPct/100),shopShare=Math.max(0,svcTotal-mechShare),timestamp=(new Date).toISOString(),Be={ref:re,items:ye,subtotal:ne,origCostTotal:e,discount:v,total:Y,amountPaid:me,processedAmount:s==="Credit"?0:Math.max(0,Y),processedAmountBasis:"NET_SALE_TOTAL",change:oe,paymentDetails:se,customerId:z,customer:be,mechanicId:l,helperId:helperId,helperName:helperInfo.name||"",serviceRevenue:svcTotal,laborTotal:svcTotal,laborMechanicSplit:mechPct,laborShopSplit:100-mechPct,laborMechanicShare:mechShare,laborShopShare:shopShare,timestamp,status:"Completed",source:"POS",cashier:IMMS_POS_USER_NAME,cashierUserId:IMMS_POS_USER_ID,cashierName:IMMS_POS_USER_NAME,cashierRole:T,cashierSessionId:Z},IMMS_productCash=Math.max(0,IMMS__partsSalesFromSale(Be)),IMMS_posCash=s==="Credit"?0:Math.max(0,IMMS_productCash+shopShare),aggregateDelta={processedAmountTotal:IMMS_posCash,salesTotal:IMMS_posCash,posProcessedTotal:IMMS_posCash,posProductSalesTotal:s==="Credit"?0:IMMS_productCash,posShopShareTotal:s==="Credit"?0:shopShare,transactionCount:s==="Credit"?0:1,posTransactionCount:s==="Credit"?0:1,creditSalesExcludedTotal:s==="Credit"?IMMS_productCash+shopShare:0,creditProductSalesExcludedTotal:s==="Credit"?IMMS_productCash:0,creditShopShareExcludedTotal:s==="Credit"?shopShare:0,creditSalesExcludedCount:s==="Credit"?1:0,sessionProductSalesTotal:IMMS_productCash,sessionServiceRevenueTotal:svcTotal,sessionShopShareTotal:shopShare,matchedSalesCount:1},stockMap={};for(const ve of C)if(ve.isBundle){for(const Oe of ve.components||[]){const productId=String(Oe.productId||"");if(productId)stockMap[productId]=(Number(stockMap[productId])||0)-((Number(Oe.qty)||0)*(Number(ve.qty)||1))}}else if(!ve.isService){const productId=String(ve.id||"");if(productId)stockMap[productId]=(Number(stockMap[productId])||0)-(Number(ve.qty)||0)}const stockChanges=Object.keys(stockMap).map(productId=>({productId,delta:Number(stockMap[productId])||0})).filter(row=>row.delta!==0),creditRef=s==="Credit"?L.collection("customer_credits").doc():null,creditData=creditRef?{customerId:z,customerName:be,refId:re,totalAmount:Y,balance:Y,dueDate:new Date(Date.now()+720*60*60*1e3).toISOString(),timestamp,status:"Unpaid"}:null,Fe=le+Ce,payrollRef=Fe>0&&l?L.collection("payroll_logs").doc():null,payrollData=payrollRef?{mechanicId:l,helperId:helperId,helperName:helperInfo.name||"",amount:Fe*((mechInfo.laborMechanicSplit!==void 0&&mechInfo.laborMechanicSplit!==null?Number(mechInfo.laborMechanicSplit):70)/100),type:"POS Service Share",serviceName:[...C.filter(Me=>Me.isService).map(Me=>Me.name),...C.filter(Me=>Me.isBundle&&ge(Me)>0).map(Me=>`${Me.name} (labor)`)].join(", ")||"General Service",refJob:re,timestamp,status:"Pending"}:null,hasSvc=C.some(it=>it.isService||it.isBundle),warrantyRef=hasSvc?L.collection("service_warranty").doc():null,_cust=(h||[]).find(cc=>cc.id===z)||{},_mech=(A||[]).find(mm=>mm.id===l||mm.empId===l),_helper=(A||[]).find(mm=>mm.id===helperId||mm.empId===helperId),_moto=_cust.motorcycles&&_cust.motorcycles[0]?_cust.motorcycles[0]:{},_today=timestamp.slice(0,10),warrantyData=warrantyRef?{fullName:be||"Walk-in",contact:_cust.contact||_cust.phone||"",email:_cust.email||"",address:_cust.address||"",brand:_moto.brand||"",model:_moto.model||"",engineType:_moto.engineType||_moto.displacement||"",plateNo:_moto.plateNo||_moto.plate||"",mileage:_moto.odometer||_moto.mileage||"",underWarranty:"Yes",warrantyType:"Service Warranty",serviceRendered:C.filter(it=>it.isService||it.isBundle).map(it=>it.name).join(", "),lastMechanic:_mech?_mech.name:"",lastHelper:_helper?_helper.name:"",lastServiceDate:_today,jobOrderNo:re,transactionReference:re,transactionRef:re,transactionId:Pe.id,salesId:Pe.id,complaint:"",dateReported:_today,warrantyStatus:"Active",status:"Serviced",priority:"Low",assignedMechanic:_mech?_mech.name:"",assignedHelper:_helper?_helper.name:"",customerId:z||"",source:"POS",autoGenerated:!0,timestamp}:null,offlineRecord={id:Pe.id,transactionRef:re,saleDocId:Pe.id,saleData:Be,sessionId:Z,userId:IMMS_POS_USER_ID,userName:IMMS_POS_USER_NAME,role:T,createdAt:timestamp,receiptFormat:a,stockChanges,aggregateDelta,creditDocId:creditRef?creditRef.id:null,creditData,payrollDocId:payrollRef?payrollRef.id:null,payrollData,warrantyDocId:warrantyRef?warrantyRef.id:null,warrantyData,sessionOpenData:window.IMMS_OFFLINE_POS?window.IMMS_OFFLINE_POS.getLocalSession(Z):null};if(!window.IMMS_OFFLINE_POS||!window.IMMS_OFFLINE_POS.commitSale)throw new Error("Firestore checkout service is unavailable.");const saveResult=await window.IMMS_OFFLINE_POS.commitSale({...offlineRecord,queueMode:"FIRESTORE_ONLY"},L);finishSale({...Be,backgroundSyncPending:!!saveResult.pendingSync,status:"Completed"},!!saveResult.pendingSync);try{k("CHECKOUT_CLOUD",`Processed ${re} for ₱${Y} via ${s}`)}catch(_e){}setOfflineRevision(v=>v+1)}catch(pe){window.__IMMS_POS_CHECKOUT_BUSY=!1;const msg="PAYMENT NOT SAVED: Firestore did not confirm the transaction. The cart was kept and no receipt was issued.";console.error(msg,pe),b(msg,"error"),setTimeout(()=>{try{window.alert(msg)}catch(_e){}},50)}}
 ,Ie=Ee(r),Ae=Ee(D)+Ee(I);useEffect(()=>{if(C.length===0){X("");return}if(["Cash","GCash","Paymaya","Bank"].includes(s))X(Y.toFixed(2))},[Y,s,C.length]);const IMMS_DRAWER_HISTORY_LIMIT=15,IMMS_drawerMoney=n=>"\u20B1"+(Number(n)||0).toLocaleString("en-PH",{minimumFractionDigits:2,maximumFractionDigits:2}),IMMS_drawerDate=n=>{if(!n)return"\u2014";const J=new Date(n);return isNaN(J.getTime())?"\u2014":J.toLocaleString("en-PH",{month:"long",day:"numeric",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:!0})},IMMS_drawerTime=n=>{if(!n)return"\u2014";const J=new Date(n);return isNaN(J.getTime())?"\u2014":J.toLocaleTimeString("en-PH",{hour:"2-digit",minute:"2-digit",hour12:!0})},IMMS_drawerDuration=(n,J)=>{if(!n)return"\u2014";const se=new Date(n),me=J?new Date(J):new Date;if(isNaN(se.getTime())||isNaN(me.getTime()))return"\u2014";const oe=Math.max(0,me-se),re=Math.floor(oe/36e5),be=Math.floor(oe%36e5/6e4);return`${re}h ${be}m`},IMMS_drawerHistoryRows=(K||[]).slice(0,IMMS_DRAWER_HISTORY_LIMIT),IMMS_drawerHistoryModal=drawerHistoryOpen&&React.createElement("div",{className:"fixed inset-0 z-[10020] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4",onClick:n=>{n.target===n.currentTarget&&setDrawerHistoryOpen(!1)}},React.createElement("section",{className:"w-full max-w-3xl max-h-[92dvh] bg-[#0f1424] border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col",role:"dialog","aria-modal":"true","aria-label":"Cash Drawer History"},React.createElement("header",{className:"flex items-center justify-between gap-3 px-4 sm:px-5 py-4 border-b border-slate-700 bg-[#111827]"},React.createElement("div",{className:"flex items-center gap-3 min-w-0"},React.createElement("div",{className:"w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center shrink-0"},React.createElement("i",{className:"fas fa-cash-register text-emerald-400 text-lg"})),React.createElement("div",{className:"min-w-0"},React.createElement("h2",{className:"text-lg sm:text-xl font-black text-white truncate"},"Cash Drawer"),React.createElement("p",{className:"text-[10px] text-slate-500 uppercase tracking-[0.18em]"},"Register sessions and close totals"))),React.createElement("button",{type:"button",onClick:()=>setDrawerHistoryOpen(!1),className:"w-10 h-10 rounded-xl border border-slate-700 bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800 flex items-center justify-center",title:"Close drawer history"},React.createElement("i",{className:"fas fa-times text-lg"}))),React.createElement("div",{className:"flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-slate-800"},React.createElement("h3",{className:"font-black text-sm sm:text-base text-slate-100 flex items-center gap-2"},React.createElement("i",{className:"fas fa-clock-rotate-left text-sky-400"}),"Drawer History"),React.createElement("button",{type:"button",onClick:()=>setDrawerHistoryOpen(!1),className:"px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 text-xs font-bold flex items-center gap-1.5"},React.createElement("i",{className:"fas fa-arrow-left"}),"Back")),React.createElement("div",{className:"flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 bg-[#0b101e]"},IMMS_drawerHistoryRows.length===0?React.createElement("div",{className:"min-h-52 flex flex-col items-center justify-center text-slate-500 text-center"},React.createElement("i",{className:"fas fa-receipt text-4xl mb-3 opacity-50"}),React.createElement("p",{className:"font-bold text-sm text-slate-400"},"No drawer history found"),React.createElement("p",{className:"text-xs mt-1"},"Closed and active cashier sessions will appear here.")):IMMS_drawerHistoryRows.map(n=>{const rawStatus=String(n.status||"").toLowerCase(),J=rawStatus==="open",isDuplicate=rawStatus==="duplicate",se=Number(n.initialFunds)||0,me=n.processedAmountTotal!==void 0&&n.processedAmountTotal!==null?Number(n.processedAmountTotal)||0:n.salesTotal!==void 0&&n.salesTotal!==null?Number(n.salesTotal)||0:Number(n.actualCash)||0,oe=se+me,re=n.countedCash!==void 0&&n.countedCash!==null?n.countedCash:n.declaredCash!==void 0&&n.declaredCash!==null?n.declaredCash:n.physicalCash!==void 0&&n.physicalCash!==null?n.physicalCash:n.cashCount,be=re!==void 0&&re!==null&&re!=="",pe=be?(Number(re)||0)-oe:null,ye=n.openedByName||n.openedBy||"System",Pe=Number(n.transactionCount)||0;return React.createElement("article",{key:n.id,className:"rounded-2xl border border-slate-700/80 bg-[#18213a] p-4 shadow-lg shadow-black/10"},React.createElement("div",{className:"flex items-start justify-between gap-3 mb-4"},React.createElement("div",{className:"min-w-0"},React.createElement("p",{className:"font-black text-base sm:text-lg text-white uppercase truncate"},ye),React.createElement("p",{className:"text-[10px] text-slate-500 mt-0.5"},J?"Active cashier shift":isDuplicate?"Duplicate opening excluded":"Closed cashier shift")),React.createElement("div",{className:"text-right shrink-0"},React.createElement("p",{className:"text-xs sm:text-sm text-slate-400"},IMMS_drawerDate(n.timestamp)),React.createElement("span",{className:"inline-flex mt-1 px-2 py-0.5 rounded-full text-[9px] font-black tracking-wider border "+(J?"bg-emerald-500/15 text-emerald-400 border-emerald-500/30":"bg-slate-800 text-slate-400 border-slate-700")},J?"OPEN":"CLOSED"))),React.createElement("div",{className:"grid grid-cols-2 sm:grid-cols-4 gap-3 text-center"},React.createElement("div",null,React.createElement("p",{className:"text-base sm:text-lg font-black text-sky-400"},IMMS_drawerMoney(se)),React.createElement("p",{className:"text-[10px] sm:text-xs text-slate-500 mt-0.5"},"Fund")),React.createElement("div",null,React.createElement("p",{className:"text-base sm:text-lg font-black text-emerald-400"},IMMS_drawerMoney(me)),React.createElement("p",{className:"text-[10px] sm:text-xs text-slate-500 mt-0.5"},"Cash in")),React.createElement("div",null,React.createElement("p",{className:"text-base sm:text-lg font-black text-amber-400"},IMMS_drawerMoney(oe)),React.createElement("p",{className:"text-[10px] sm:text-xs text-slate-500 mt-0.5"},"Expected")),React.createElement("div",null,React.createElement("p",{className:"text-base sm:text-lg font-black "+(pe===null?"text-slate-500":pe===0?"text-slate-300":pe>0?"text-amber-400":"text-rose-400")},pe===null?"\u2014":(pe>0?"+":"")+IMMS_drawerMoney(pe)),React.createElement("p",{className:"text-[10px] sm:text-xs text-slate-500 mt-0.5"},"Variance"))),React.createElement("div",{className:"mt-4 pt-3 border-t border-slate-700/70 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] sm:text-xs text-slate-500"},React.createElement("span",null,Pe," txn",Pe===1?"":"s"),React.createElement("span",{className:"text-slate-700"},"\u2022"),React.createElement("span",null,IMMS_drawerDuration(n.timestamp,n.closedAt)," shift"),React.createElement("span",{className:"text-slate-700"},"\u2022"),React.createElement("span",null,J?"Currently open":"Closed "+IMMS_drawerTime(n.closedAt))))})),React.createElement("footer",{className:"px-4 sm:px-5 py-3 border-t border-slate-800 bg-[#111827] text-center text-xs text-slate-500"},K.length," record",K.length===1?"":"s"," loaded \u2014 showing latest ",IMMS_drawerHistoryRows.length)));return React.createElement("div",{className:"relative flex flex-col h-full bg-[#0b0f19] text-slate-100 rounded-xl overflow-hidden font-sans imms-pos-content-shell"},!d&&!Pc&&React.createElement("div",{className:"absolute inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4"},React.createElement("div",{className:"text-center text-slate-300"},React.createElement("i",{className:"fas fa-spinner fa-spin text-3xl text-orange-400 mb-3"}),React.createElement("p",{className:"text-sm"},"Checking your cashier session..."))),!d&&Pc&&React.createElement("div",{className:"absolute inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4"},React.createElement("div",{
 className:"bg-[#111827] w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border border-slate-800"},React.createElement("div",{className:"bg-blue-600 p-5 text-center"},React.createElement("div",{className:"w-14 h-14 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-2 shadow-inner"},React.createElement("i",{className:"fas fa-cash-register text-2xl text-white"})),React.createElement("h2",{className:"text-lg font-bold text-white tracking-wide"},"Open Cashier Register"),React.createElement("p",{className:"text-blue-100 text-xs mt-0.5"},"Please declare initial funds (petty cash) to start transaction.")),React.createElement("form",{onSubmit:Re,className:"p-5"},React.createElement("label",{className:"block text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider"},"Initial Funds (\u20B1)"),React.createElement("input",{type:"text",required:!0,autoFocus:!0,disabled:openingRegister,placeholder:"e.g. 1,000",value:xe,onChange:n=>Ne(n.target.value,y),className:"w-full text-center text-2xl font-black p-3 border border-slate-700 rounded-xl bg-slate-950 text-white focus:border-blue-500 outline-none transition-all mb-4 disabled:opacity-50"}),React.createElement("button",{type:"submit",disabled:openingRegister,className:"w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl shadow-lg transition-all text-base"},openingRegister?React.createElement(React.Fragment,null,React.createElement("i",{className:"fas fa-spinner fa-spin mr-2"}),"OPENING..."):"OPEN REGISTER")),React.createElement("div",{className:"bg-slate-950 p-4 border-t border-slate-800 h-48 overflow-y-auto"},React.createElement("h3",{
 className:"text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2"},React.createElement("i",{className:"fas fa-history"})," Recent Openings"),K.length===0?React.createElement("p",{className:"text-center text-xs italic mt-4 "+(historyError?"text-red-400":"text-slate-600")},historyLoading?"Loading recent openings...":historyError||"No history found."):React.createElement("div",{className:"space-y-2"},K.map(n=>{const fmtT=t=>t?new Date(t).toLocaleString("en-PH",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit",hour12:!0}):"\u2014";const fmtP=v=>"\u20B1"+(Number(v)||0).toLocaleString(void 0,{minimumFractionDigits:2,maximumFractionDigits:2});const isOpen=String(n.status||"").toLowerCase()==="open",hasAutoProcessed=n.processedAmountTotal!==void 0&&n.processedAmountTotal!==null,hasAutoSales=n.salesTotal!==void 0&&n.salesTotal!==null,diff=isOpen||hasAutoProcessed||hasAutoSales?null:Number(n.actualCash||0)-Number(n.initialFunds||0);const userName=n.openedByName||n.openedBy||"System";return React.createElement("div",{key:n.id,className:"bg-[#111827] p-3 rounded-lg border border-slate-800 shadow-sm space-y-2"},React.createElement("div",{className:"flex justify-between items-center"},React.createElement("p",{className:"text-xs font-bold text-slate-200 flex items-center gap-1.5"},React.createElement("i",{className:"fas fa-user-circle text-slate-500"}),userName),React.createElement("span",{className:"text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full "+(isOpen?"bg-emerald-500/15 text-emerald-400 border border-emerald-500/30":"bg-slate-700/40 text-slate-400 border border-slate-700")},isOpen?"OPEN":"CLOSED")),React.createElement("div",{
@@ -4157,7 +4352,7 @@ className:"p-4 text-blue-600 dark:text-blue-400"},"Shop Share"),React.createElem
 },j||f.type||"Service/Labor")),React.createElement("td",{className:"p-4 font-bold text-slate-800 dark:text-white"},"\u20B1",D.toLocaleString(void 0,{minimumFractionDigits:2})),React.createElement("td",{className:"p-4 font-bold text-amber-600 dark:text-amber-500"},"\u20B1",(f.amount||0).toLocaleString(void 0,{minimumFractionDigits:2})),React.createElement("td",{className:"p-4 font-bold text-blue-600 dark:text-blue-400"},"\u20B1",H.toLocaleString(void 0,{minimumFractionDigits:2})),React.createElement("td",{className:"p-4 text-right"},React.createElement("button",{onClick:()=>S(f),className:"border border-amber-200 dark:border-orange-500/50 text-amber-600 dark:text-orange-500 hover:bg-amber-50 dark:hover:bg-orange-500 hover:text-amber-700 dark:hover:text-white px-3 py-1.5 rounded transition-colors text-[10px] font-bold flex items-center gap-1 float-right"},React.createElement("i",{className:"fas fa-edit"})," Edit")))}),i.length===0&&React.createElement("tr",null,React.createElement("td",{colSpan:"10",className:"text-center text-slate-500 py-10 italic"},b?"No services found for this mechanic in the selected period.":"Select a mechanic to view service history.")))))),React.createElement("div",{className:"bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#1f2937] rounded-xl flex flex-col shadow-sm flex-1"},React.createElement("div",{className:"p-4 border-b border-slate-200 dark:border-[#1f2937] bg-slate-50 dark:bg-[#151a27] rounded-t-xl"},React.createElement("h3",{
 className:"font-bold text-sm text-slate-800 dark:text-slate-200 flex items-center gap-2 tracking-wide"},React.createElement("div",{className:"w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center border border-amber-200 dark:border-amber-500/30"},React.createElement("i",{className:"fas fa-list-alt text-amber-600 dark:text-amber-500 text-[10px]"})),"Per-Mechanic Breakdown")),React.createElement("div",{className:"overflow-x-auto hide-scrollbar flex-1 bg-white dark:bg-[#0b101e] rounded-b-xl"},React.createElement("table",{className:"w-full text-left text-xs whitespace-nowrap"},React.createElement("thead",{className:"bg-slate-50 dark:bg-[#151a27] border-b border-slate-200 dark:border-[#1f2937] text-[10px] font-bold text-slate-500 uppercase tracking-widest"},React.createElement("tr",null,React.createElement("th",{className:"p-4"},"Mechanic"),React.createElement("th",{className:"p-4 text-center"},"Jobs"),React.createElement("th",{className:"p-4"},"Gross Service"),React.createElement("th",{className:"p-4 text-amber-600 dark:text-amber-500"},"Mechanic (Share)"),React.createElement("th",{className:"p-4 text-blue-600 dark:text-blue-500"},"Shop (Share)"),React.createElement("th",{className:"p-4"},"Split"))),React.createElement("tbody",null,P.map((f,_)=>React.createElement("tr",{key:_,className:"border-b border-slate-100 dark:border-[#1f2937] hover:bg-slate-50 dark:hover:bg-[#1a2234] transition-colors text-slate-700 dark:text-slate-300"
 },React.createElement("td",{className:"p-4 font-bold text-amber-600 dark:text-amber-500 uppercase flex items-center gap-2"},React.createElement("i",{className:"fas fa-hard-hat text-slate-400"})," ",f.name),React.createElement("td",{className:"p-4 text-center font-bold text-blue-600 dark:text-blue-500"},f.jobs),React.createElement("td",{className:"p-4 font-bold text-slate-800 dark:text-white"},"\u20B1",f.gross.toLocaleString(void 0,{minimumFractionDigits:2})),React.createElement("td",{className:"p-4 font-bold text-amber-600 dark:text-amber-500"},"\u20B1",f.mechShare.toLocaleString(void 0,{minimumFractionDigits:2})),React.createElement("td",{className:"p-4 font-bold text-blue-600 dark:text-blue-500"},"\u20B1",f.shopShare.toLocaleString(void 0,{minimumFractionDigits:2})),React.createElement("td",{className:"p-4 w-48"},React.createElement("div",{className:"flex items-center gap-3"},React.createElement("div",{className:"flex-1 bg-slate-200 dark:bg-[#12151e] h-1.5 rounded-full overflow-hidden flex border border-slate-300 dark:border-transparent"},React.createElement("div",{className:"bg-amber-500 h-full",style:{width:`${f.mechSplitPct}%`}}),React.createElement("div",{className:"bg-blue-500 dark:bg-[#2d3546] h-full flex-1"})),React.createElement("span",{className:"text-[10px] text-slate-500 font-medium w-8"},f.splitLabel))))),P.length===0&&React.createElement("tr",null,React.createElement("td",{colSpan:"6",className:"text-center text-slate-500 py-10 italic"
-},"No mechanic records found for this period.")))))))}function AuditView({db:B}){const PAGE_SIZE=25,[rows,setRows]=useState([]),[page,setPage]=useState(1),[cursors,setCursors]=useState([null]),[hasNext,setHasNext]=useState(!1),[loading,setLoading]=useState(!0),[error,setError]=useState(""),[refreshKey,setRefreshKey]=useState(0);useEffect(()=>{let active=!0;(async()=>{if(!B){active&&(setRows([]),setLoading(!1),setError("Database unavailable."));return}setLoading(!0);setError("");try{let query=B.collection("audit_logs").orderBy("timestamp","desc").limit(PAGE_SIZE+1),cursor=cursors[page-1]||null;if(cursor)query=query.startAfter(cursor);const snap=await query.get(),docs=snap.docs||[],more=docs.length>PAGE_SIZE,visible=docs.slice(0,PAGE_SIZE);if(!active)return;setRows(visible.map(doc=>({id:doc.id,...doc.data()})));setHasNext(more);if(visible.length)setCursors(prev=>{const next=[...prev];next[page]=visible[visible.length-1];return next})}catch(err){if(active){console.error("Audit page load failed:",err);setRows([]);setHasNext(!1);setError(err&&err.message?err.message:"Unable to load audit logs.")}}finally{active&&setLoading(!1)}})();return()=>{active=!1}},[B,page,refreshKey]);const refresh=()=>{setPage(1);setCursors([null]);setRefreshKey(v=>v+1)},prev=()=>{if(!loading&&page>1)setPage(v=>v-1)},next=()=>{if(!loading&&hasNext)setPage(v=>v+1)};return React.createElement("div",{className:"h-full bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col transition-colors duration-300 animate-fade-in"},React.createElement("div",{className:"p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0f1522] rounded-t-xl transition-colors duration-300 flex items-center justify-between gap-3"},React.createElement("div",null,React.createElement("h2",{className:"font-bold text-lg text-slate-800 dark:text-white"},React.createElement("i",{className:"fas fa-shield-halved text-blue-500 mr-2"}),"System Security & Audit Logs"),React.createElement("p",{className:"text-xs text-slate-500"},"Loads ",PAGE_SIZE," records per page only.")),React.createElement("button",{type:"button",onClick:refresh,disabled:loading,className:"px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"},React.createElement("i",{className:"fas fa-rotate mr-1"}),"Refresh")),React.createElement("div",{className:"flex-1 overflow-auto p-4 hide-scrollbar"},error&&React.createElement("div",{className:"mb-3 p-3 rounded-lg border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 text-xs"},error),React.createElement("table",{className:"w-full text-left text-sm whitespace-nowrap"},React.createElement("thead",{className:"bg-slate-100 dark:bg-slate-950 sticky top-0 text-slate-600 dark:text-slate-400 transition-colors duration-300"},React.createElement("tr",null,React.createElement("th",{className:"p-3"},"Timestamp"),React.createElement("th",{className:"p-3"},"User & Role"),React.createElement("th",{className:"p-3"},"Action Type"),React.createElement("th",{className:"p-3 w-full"},"Details"))),React.createElement("tbody",null,loading?React.createElement("tr",null,React.createElement("td",{colSpan:"4",className:"text-center text-slate-500 py-12"},React.createElement("i",{className:"fas fa-spinner fa-spin mr-2"}),"Loading page ",page,"...")):rows.length?rows.map(V=>React.createElement("tr",{key:V.id,className:"border-b border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-300 transition-colors duration-300"},React.createElement("td",{className:"p-3 text-[10px] font-mono text-slate-500"},V.timestamp?new Date(V.timestamp).toLocaleString():"—"),React.createElement("td",{className:"p-3"},React.createElement("span",{className:"font-bold"},V.user||"System")," ",React.createElement("span",{className:"text-[9px] bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded ml-1 uppercase"},V.role||"")),React.createElement("td",{className:"p-3"},React.createElement("span",{className:"text-[10px] font-bold text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-900/10 px-2 py-0.5 rounded"},V.action||"—")),React.createElement("td",{className:"p-3 text-xs italic whitespace-normal min-w-[320px]"},V.details||""))):React.createElement("tr",null,React.createElement("td",{colSpan:"4",className:"text-center text-slate-500 py-12 italic"},"No audit records on this page."))))),React.createElement("div",{className:"px-4 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0f1522] rounded-b-xl flex items-center justify-between gap-3"},React.createElement("p",{className:"text-xs text-slate-500"},"Page ",page," · ",rows.length," record",rows.length===1?"":"s"," loaded"),React.createElement("div",{className:"flex gap-2"},React.createElement("button",{type:"button",onClick:prev,disabled:loading||page<=1,className:"px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold disabled:opacity-40"},React.createElement("i",{className:"fas fa-chevron-left mr-1"}),"Previous"),React.createElement("button",{type:"button",onClick:next,disabled:loading||!hasNext,className:"px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold disabled:opacity-40"},"Next",React.createElement("i",{className:"fas fa-chevron-right ml-1"}))))) }function SettingsView({settings:B,db:V,notify:F,logAudit:U}){const[$,q]=useState(B||{}),[h,A]=useState(""),[p,L]=useState(null),b=[{id:"dashboard",label:"Dashboard",group:"General"},{id:"pos",label:"POS - Products",group:"Sales"},{id:"pos_service",label:"POS - Services",group:"Sales"},{id:"quotations",label:"Quotations",group:"Sales"},{id:"appointments",label:"Appointments",group:"Management"},{id:"bookings",label:"Bookings",group:"Management"},{id:"alerts",label:"Maintenance Alerts",group:"Management"},{id:"crm",label:"Customers (CRM)",group:"Management"},{id:"inventory",label:"Inventory",
+},"No mechanic records found for this period.")))))))}function AuditView({db:B}){const PAGE_SIZE=25,[rows,setRows]=useState([]),[page,setPage]=useState(1),[cursors,setCursors]=useState([null]),[hasNext,setHasNext]=useState(!1),[loading,setLoading]=useState(!0),[error,setError]=useState(""),[refreshKey,setRefreshKey]=useState(0);useEffect(()=>{let active=!0;(async()=>{if(!B){active&&(setRows([]),setLoading(!1),setError("Database unavailable."));return}setLoading(!0);setError("");try{let query=B.collection("audit_logs").orderBy("timestamp","desc").limit(PAGE_SIZE+1),cursor=cursors[page-1]||null;if(cursor)query=query.startAfter(cursor);const snap=await query.get(),docs=snap.docs||[],more=docs.length>PAGE_SIZE,visible=docs.slice(0,PAGE_SIZE);if(!active)return;setRows(visible.flatMap(doc=>{const data=doc.data()||{};return Array.isArray(data.entries)&&data.entries.length?data.entries.map((entry,index)=>({id:doc.id+"_"+index,...entry,batchId:doc.id})): [{id:doc.id,...data}]}));setHasNext(more);if(visible.length)setCursors(prev=>{const next=[...prev];next[page]=visible[visible.length-1];return next})}catch(err){if(active){console.error("Audit page load failed:",err);setRows([]);setHasNext(!1);setError(err&&err.message?err.message:"Unable to load audit logs.")}}finally{active&&setLoading(!1)}})();return()=>{active=!1}},[B,page,refreshKey]);const refresh=()=>{setPage(1);setCursors([null]);setRefreshKey(v=>v+1)},prev=()=>{if(!loading&&page>1)setPage(v=>v-1)},next=()=>{if(!loading&&hasNext)setPage(v=>v+1)};return React.createElement("div",{className:"h-full bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col transition-colors duration-300 animate-fade-in"},React.createElement("div",{className:"p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0f1522] rounded-t-xl transition-colors duration-300 flex items-center justify-between gap-3"},React.createElement("div",null,React.createElement("h2",{className:"font-bold text-lg text-slate-800 dark:text-white"},React.createElement("i",{className:"fas fa-shield-halved text-blue-500 mr-2"}),"System Security & Audit Logs"),React.createElement("p",{className:"text-xs text-slate-500"},"Loads ",PAGE_SIZE," records per page only.")),React.createElement("button",{type:"button",onClick:refresh,disabled:loading,className:"px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"},React.createElement("i",{className:"fas fa-rotate mr-1"}),"Refresh")),React.createElement("div",{className:"flex-1 overflow-auto p-4 hide-scrollbar"},error&&React.createElement("div",{className:"mb-3 p-3 rounded-lg border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 text-xs"},error),React.createElement("table",{className:"w-full text-left text-sm whitespace-nowrap"},React.createElement("thead",{className:"bg-slate-100 dark:bg-slate-950 sticky top-0 text-slate-600 dark:text-slate-400 transition-colors duration-300"},React.createElement("tr",null,React.createElement("th",{className:"p-3"},"Timestamp"),React.createElement("th",{className:"p-3"},"User & Role"),React.createElement("th",{className:"p-3"},"Action Type"),React.createElement("th",{className:"p-3 w-full"},"Details"))),React.createElement("tbody",null,loading?React.createElement("tr",null,React.createElement("td",{colSpan:"4",className:"text-center text-slate-500 py-12"},React.createElement("i",{className:"fas fa-spinner fa-spin mr-2"}),"Loading page ",page,"...")):rows.length?rows.map(V=>React.createElement("tr",{key:V.id,className:"border-b border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-300 transition-colors duration-300"},React.createElement("td",{className:"p-3 text-[10px] font-mono text-slate-500"},V.timestamp?new Date(V.timestamp).toLocaleString():"—"),React.createElement("td",{className:"p-3"},React.createElement("span",{className:"font-bold"},V.user||"System")," ",React.createElement("span",{className:"text-[9px] bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded ml-1 uppercase"},V.role||"")),React.createElement("td",{className:"p-3"},React.createElement("span",{className:"text-[10px] font-bold text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-900/10 px-2 py-0.5 rounded"},V.action||"—")),React.createElement("td",{className:"p-3 text-xs italic whitespace-normal min-w-[320px]"},V.details||""))):React.createElement("tr",null,React.createElement("td",{colSpan:"4",className:"text-center text-slate-500 py-12 italic"},"No audit records on this page."))))),React.createElement("div",{className:"px-4 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0f1522] rounded-b-xl flex items-center justify-between gap-3"},React.createElement("p",{className:"text-xs text-slate-500"},"Page ",page," · ",rows.length," record",rows.length===1?"":"s"," loaded"),React.createElement("div",{className:"flex gap-2"},React.createElement("button",{type:"button",onClick:prev,disabled:loading||page<=1,className:"px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold disabled:opacity-40"},React.createElement("i",{className:"fas fa-chevron-left mr-1"}),"Previous"),React.createElement("button",{type:"button",onClick:next,disabled:loading||!hasNext,className:"px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold disabled:opacity-40"},"Next",React.createElement("i",{className:"fas fa-chevron-right ml-1"}))))) }function SettingsView({settings:B,db:V,notify:F,logAudit:U}){const[$,q]=useState(B||{}),[h,A]=useState(""),[p,L]=useState(null),b=[{id:"dashboard",label:"Dashboard",group:"General"},{id:"pos",label:"POS - Products",group:"Sales"},{id:"pos_service",label:"POS - Services",group:"Sales"},{id:"quotations",label:"Quotations",group:"Sales"},{id:"appointments",label:"Appointments",group:"Management"},{id:"bookings",label:"Bookings",group:"Management"},{id:"alerts",label:"Maintenance Alerts",group:"Management"},{id:"crm",label:"Customers (CRM)",group:"Management"},{id:"inventory",label:"Inventory",
 group:"Management"},{id:"bundles",label:"Bundles",group:"Management"},{id:"brands_models",label:"Brands & Models",group:"Management"},{id:"services_list",label:"Services List",group:"Management"},{id:"warranty",label:"Service Warranty",group:"Management"},{id:"rma",label:"Supplier Returns",group:"Management"},{id:"pre_orders",label:"Pre-Orders",group:"Management"},{id:"credits",label:"Customer Credits",group:"Finance"},{id:"expenses",label:"Expenses",group:"Finance"},{id:"hr",label:"Employees",group:"HR"},{id:"attendance",label:"Attendance",group:"HR"},{id:"analytics",label:"Sales Tracker (Analytics)",group:"Reports"},{id:"labor_report",label:"Labor % Report",group:"Reports"},{id:"users",label:"Manage Users",group:"Admin"},{id:"settings",label:"Settings",group:"Admin"},{id:"audit",label:"Audit Logs",group:"Admin"}];useEffect(()=>{const u=((B==null?void 0:B.roles)||["Admin","Manager","Cashier","Mechanic","Inventory Staff"]).map(g=>typeof g=="string"?g==="Admin"?{name:"Admin",tabs:["all"],requirePasscode:!1}:g==="Manager"?{name:"Manager",tabs:["all"],requirePasscode:!1}:{name:g,tabs:["dashboard","pos","pos_service","crm"],requirePasscode:!0}:g);q({...B,roles:u})},[B]);const k=async x=>{x.preventDefault();try{await V.collection("settings").doc("system").set($,{merge:!0}),U("UPDATE_SETTINGS","Modified system configurations and roles"),F("Settings & Roles Updated Successfully")}catch(err){F("Save failed: "+(err&&err.message||"document too large? Try smaller QR images."),"error")}},T=x=>{const u=x.target.files[0];if(!u)return
 ;if(u.size>2*1024*1024)return F("Error: File is too large! Please select an image under 2MB.","error");const g=new FileReader;g.onload=P=>{q({...$,systemLogo:P.target.result}),F("Logo loaded! Click Save to apply.")},g.readAsDataURL(u)},_spDefault=()=>({reservationPct:30,services:[{name:"PMS Plus",prices:{"100cc - 125cc (small bikes)":799,"135cc - 150cc":899,"155cc - 160cc":999,"180cc - 200cc":1099,"250cc - 400cc":1299,"400cc+ (big bikes)":1599}},{name:"PMS Safe Premium",prices:{"100cc - 125cc (small bikes)":1199,"135cc - 150cc":1399,"155cc - 160cc":1599,"180cc - 200cc":1799,"250cc - 400cc":2199,"400cc+ (big bikes)":2599}},{name:"Others",prices:{flat:500}}]}),_spGet=()=>($.servicePricing&&$.servicePricing.services)?$.servicePricing:_spDefault(),_spCC=()=>["100cc - 125cc (small bikes)","135cc - 150cc","155cc - 160cc","180cc - 200cc","250cc - 400cc","400cc+ (big bikes)"],_spSetPrice=(si,cc,val)=>{const sp=JSON.parse(JSON.stringify(_spGet()));sp.services[si].prices[cc]=Number(val)||0;q({...$,servicePricing:sp})},_spSetFlat=(si,val)=>{const sp=JSON.parse(JSON.stringify(_spGet()));sp.services[si].prices={flat:Number(val)||0};q({...$,servicePricing:sp})},_spSetPct=(val)=>{const sp=JSON.parse(JSON.stringify(_spGet()));sp.reservationPct=Math.max(0,Math.min(100,Number(val)||0));q({...$,servicePricing:sp})},_spAddSvc=()=>{const sp=JSON.parse(JSON.stringify(_spGet()));const pr={};_spCC().forEach(c=>pr[c]=0);sp.services.push({name:"New Service",prices:pr});q({...$,servicePricing:sp})},_spDelSvc=(si)=>{const sp=JSON.parse(JSON.stringify(_spGet()));sp.services.splice(si,1);q({...$,servicePricing:sp})},_spRename=(si,name)=>{const sp=JSON.parse(JSON.stringify(_spGet()));sp.services[si].name=name;q({...$,servicePricing:sp})},_paAdd=kind=>{const arr=($.paymentAccounts||[]).slice();arr.push({id:"pa_"+Date.now().toString(36),kind:kind,label:kind==="gcash"?"GCash":"Bank",bankName:"",accountName:"",accountNumber:"",qr:""});q({...$,paymentAccounts:arr})},_paUpd=(idx,patch)=>{const arr=($.paymentAccounts||[]).slice();arr[idx]={...arr[idx],...patch};q({...$,paymentAccounts:arr})},_paDel=idx=>{const arr=($.paymentAccounts||[]).slice();arr.splice(idx,1);q({...$,paymentAccounts:arr})},_paQR=(idx,file)=>{if(!file)return;if(file.size>5*1024*1024)return F("QR too large (max 5MB).","error");const rd=new FileReader;rd.onload=ev=>{const img=new Image;img.onload=()=>{const MAX=512;let w=img.width,h=img.height;if(w>h){if(w>MAX){h=Math.round(h*MAX/w);w=MAX}}else{if(h>MAX){w=Math.round(w*MAX/h);h=MAX}}const cv=document.createElement("canvas");cv.width=w;cv.height=h;const cx=cv.getContext("2d");cx.fillStyle="#ffffff";cx.fillRect(0,0,w,h);cx.drawImage(img,0,0,w,h);let out;try{out=cv.toDataURL("image/jpeg",0.85)}catch(e){out=ev.target.result}_paUpd(idx,{qr:out}),F("QR loaded ("+Math.round(out.length/1024)+"KB)! Click Save to apply.")};img.onerror=()=>{_paUpd(idx,{qr:ev.target.result}),F("QR loaded! Click Save to apply.")};img.src=ev.target.result};rd.readAsDataURL(file)},C=()=>{if(!h.trim())return;const x=$.roles||[];x.find(u=>u.name===h.trim())?F("Role name already exists","error"):(q({...$,roles:[...x,{name:h.trim(),tabs:["dashboard"],requirePasscode:!0}]}),A(""))},O=x=>{if(["Admin","Mechanic"].includes(x))return F("Cannot remove core system roles","error");q({...$,roles:$.roles.filter(u=>u.name!==x)})},t=()=>{const x=$.roles.map(u=>u.name===p.name?p:u);q({...$,roles:x}),L(null)},w=x=>{if(p.tabs.includes("all"))return;const u=p.tabs.includes(x)?p.tabs.filter(g=>g!==x):[...p.tabs,x];L({...p,tabs:u})}
 ;return React.createElement("div",{className:"h-full bg-white dark:bg-[#0b101e] rounded-xl shadow-sm flex flex-col transition-colors duration-300 animate-fade-in relative"},React.createElement("div",{className:"p-4 border-b border-slate-200 dark:border-[#1f2937] bg-slate-50 dark:bg-[#111827] rounded-t-xl transition-colors duration-300 shrink-0"},React.createElement("h2",{className:"font-bold text-lg text-slate-800 dark:text-white"},React.createElement("i",{className:"fas fa-cog text-blue-500 mr-2"}),"System Configuration")),React.createElement("div",{className:"flex-1 overflow-auto p-6 hide-scrollbar"},React.createElement("form",{onSubmit:k,className:"max-w-3xl space-y-8"},React.createElement("section",{className:"space-y-4 mb-8"},React.createElement("h3",{className:"font-bold text-blue-600 dark:text-blue-500 uppercase tracking-wider text-xs border-b border-slate-200 dark:border-[#1f2937] pb-2"},"Business Identity"),React.createElement("div",{className:"flex flex-col sm:flex-row gap-6 items-start"},React.createElement("div",{className:"shrink-0 space-y-2"},React.createElement("div",{className:"w-36 h-36 rounded-xl border-2 border-dashed border-slate-300 dark:border-[#2d3748] flex flex-col items-center justify-center bg-slate-50 dark:bg-[#151a27] relative overflow-hidden group transition-all duration-300 hover:border-blue-500"},$.systemLogo?React.createElement("img",{src:$.systemLogo,loading:"eager",decoding:"async",fetchPriority:"high",className:"w-full h-full object-contain p-2 drop-shadow-sm bg-white dark:bg-transparent",
@@ -4168,7 +4363,7 @@ className:"text-xs font-bold text-slate-600 dark:text-slate-400 block mb-1"},"Te
 className:"px-3 py-2 rounded-lg bg-red-500/10 text-red-500 border border-red-500/30 text-xs font-bold hover:bg-red-500/20 transition-colors flex items-center gap-2"},React.createElement("i",{className:"fas fa-building-columns"})," Add Bank")),($.paymentAccounts||[]).length===0?React.createElement("p",{className:"text-xs text-slate-400 italic"},"Wala pang payment account. Pindutin ang Add GCash o Add Bank sa taas."):React.createElement("div",{className:"space-y-3"},($.paymentAccounts||[]).map((acc,idx)=>React.createElement("div",{key:acc.id||idx,className:"rounded-xl border border-slate-200 dark:border-[#2d3748] p-4 bg-slate-50 dark:bg-[#0f1522]"},React.createElement("div",{className:"flex items-center justify-between mb-3"},React.createElement("span",{className:"text-xs font-black uppercase tracking-wider px-2 py-1 rounded-full "+(acc.kind==="gcash"?"bg-blue-500/15 text-blue-500":"bg-red-500/15 text-red-500")},React.createElement("i",{className:"fas "+(acc.kind==="gcash"?"fa-mobile-screen":"fa-building-columns")+" mr-1"}),acc.kind==="gcash"?"GCash":"Bank"),React.createElement("button",{type:"button",onClick:()=>_paDel(idx),className:"text-red-500 hover:text-red-400 text-xs font-bold"},React.createElement("i",{className:"fas fa-trash mr-1"}),"Remove")),React.createElement("div",{className:"grid grid-cols-1 md:grid-cols-2 gap-3"},React.createElement("div",{className:"space-y-2"},acc.kind==="bank"?React.createElement("div",null,React.createElement("label",{
 className:"block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider"},"Bank Name"),React.createElement("input",{value:acc.bankName||"",onChange:e=>_paUpd(idx,{bankName:e.target.value}),placeholder:"e.g. BPI, BDO, Metrobank",className:"w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-[#2d3748] bg-white dark:bg-[#0b101e] text-slate-800 dark:text-white outline-none focus:border-emerald-500"})):null,React.createElement("div",null,React.createElement("label",{className:"block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider"},"Account Name"),React.createElement("input",{value:acc.accountName||"",onChange:e=>_paUpd(idx,{accountName:e.target.value}),placeholder:"Pangalan sa account",className:"w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-[#2d3748] bg-white dark:bg-[#0b101e] text-slate-800 dark:text-white outline-none focus:border-emerald-500"})),React.createElement("div",null,React.createElement("label",{className:"block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider"},acc.kind==="gcash"?"GCash Number":"Account Number"),React.createElement("input",{value:acc.accountNumber||"",onChange:e=>_paUpd(idx,{accountNumber:e.target.value}),placeholder:acc.kind==="gcash"?"09xxxxxxxxx":"Account number",className:"w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-[#2d3748] bg-white dark:bg-[#0b101e] text-slate-800 dark:text-white outline-none focus:border-emerald-500"
 }))),React.createElement("div",null,React.createElement("label",{className:"block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider"},"QR Code"),React.createElement("div",{className:"relative border-2 border-dashed border-slate-300 dark:border-[#2d3748] rounded-xl h-40 flex items-center justify-center overflow-hidden hover:border-emerald-500 transition-colors"},acc.qr?React.createElement("img",{src:acc.qr,alt:"QR",className:"max-h-full max-w-full object-contain p-1"}):React.createElement("div",{className:"flex flex-col items-center text-slate-400"},React.createElement("i",{className:"fas fa-qrcode text-3xl mb-1"}),React.createElement("span",{className:"text-[10px] font-bold"},"Upload QR")),React.createElement("input",{type:"file",accept:"image/*",onChange:e=>_paQR(idx,e.target.files&&e.target.files[0]),className:"absolute inset-0 w-full h-full opacity-0 cursor-pointer"})),React.createElement("p",{className:"text-[9px] text-slate-500 text-center mt-1"},"Max 2MB \xb7 Click to upload/change"))))))),React.createElement("div",{className:"crm-card rounded-xl p-5 mb-4 border border-slate-200 dark:border-[#2d3748]"},React.createElement("h3",{className:"font-bold text-slate-800 dark:text-white mb-1 flex items-center gap-2"},React.createElement("i",{className:"fas fa-file-shield text-orange-500"}),"Booking Policies (Step 4)"),React.createElement("p",{className:"text-xs text-slate-500 mb-4"
-},"Editable text shown on the public booking form's Policy step. One line per bullet for the Scope field. Leave blank to use the default text."),[["notice","Appointment Notice (orange)"],["reminder","Service Policy Reminder (blue)"],["scope","PMS Scope & Additional Requests (one line per bullet)"],["charges","Additional Charges (yellow)"],["warranty","Service Warranty (green)"],["comfort","Customer Comfort & Etiquette (gray)"],["confirm","Confirmation checkbox text"]].map(f=>React.createElement("div",{key:f[0],className:"mb-3"},React.createElement("label",{className:"block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1"},f[1]),React.createElement("textarea",{rows:f[0]==="scope"?4:2,value:$.policies&&$.policies[f[0]]||"",onChange:x=>q({...$,policies:{...$.policies||{},[f[0]]:x.target.value}}),placeholder:"Leave blank to use default",className:"w-full p-3 rounded-lg bg-white dark:bg-[#1a2234] border border-slate-200 dark:border-[#2d3748] text-sm text-slate-800 dark:text-white outline-none focus:border-orange-500 transition-colors resize-none"})))),React.createElement(EmailTemplatesEditor,{notify:F}),React.createElement(DataResetButton,{db:V,notify:F}),React.createElement("div",{className:"pt-6 border-t border-slate-200 dark:border-[#1f2937] transition-colors duration-300 pb-10"},React.createElement("button",{type:"submit",className:"bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg shadow-md hover:-translate-y-0.5 transition-all"
+},"Editable text shown on the public booking form's Policy step. One line per bullet for the Scope field. Leave blank to use the default text."),[["notice","Appointment Notice (orange)"],["reminder","Service Policy Reminder (blue)"],["scope","PMS Scope & Additional Requests (one line per bullet)"],["charges","Additional Charges (yellow)"],["warranty","Service Warranty (green)"],["comfort","Customer Comfort & Etiquette (gray)"],["confirm","Confirmation checkbox text"]].map(f=>React.createElement("div",{key:f[0],className:"mb-3"},React.createElement("label",{className:"block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1"},f[1]),React.createElement("textarea",{rows:f[0]==="scope"?4:2,value:$.policies&&$.policies[f[0]]||"",onChange:x=>q({...$,policies:{...$.policies||{},[f[0]]:x.target.value}}),placeholder:"Leave blank to use default",className:"w-full p-3 rounded-lg bg-white dark:bg-[#1a2234] border border-slate-200 dark:border-[#2d3748] text-sm text-slate-800 dark:text-white outline-none focus:border-orange-500 transition-colors resize-none"})))),React.createElement(EmailTemplatesEditor,{notify:F}),React.createElement(DatabaseMigrationPanel,{db:V,notify:F,logAudit:U}),React.createElement(DataResetButton,{db:V,notify:F}),React.createElement("div",{className:"pt-6 border-t border-slate-200 dark:border-[#1f2937] transition-colors duration-300 pb-10"},React.createElement("button",{type:"submit",className:"bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg shadow-md hover:-translate-y-0.5 transition-all"
 },React.createElement("i",{className:"fas fa-save mr-2"}),"Save All Settings")))),p&&React.createElement("div",{className:"fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"},React.createElement("div",{className:"bg-[#111827] rounded-xl w-full max-w-2xl shadow-2xl flex flex-col border border-[#1f2937] max-h-[90vh] transition-colors duration-300 animate-scale-in"},React.createElement("div",{className:"p-4 border-b border-[#1f2937] flex justify-between items-center bg-[#151a27] rounded-t-xl shrink-0"},React.createElement("h3",{className:"font-bold text-lg text-white"},React.createElement("i",{className:"fas fa-user-lock text-purple-500 mr-2"}),"Edit Access: ",p.name),React.createElement("button",{type:"button",onClick:()=>L(null),className:"text-slate-400 hover:text-red-500 transition-colors hover:scale-110"},React.createElement("i",{className:"fas fa-times"}))),React.createElement("div",{className:"p-6 overflow-y-auto hide-scrollbar space-y-6 flex-1"},React.createElement("div",{className:"bg-red-900/10 border border-red-900/30 p-4 rounded-xl transition-colors duration-300"},React.createElement("h4",{className:"font-bold text-red-500 text-sm mb-2"},React.createElement("i",{className:"fas fa-shield-alt mr-2"}),"Action Security"),React.createElement("label",{className:"flex items-center gap-3 cursor-pointer"},React.createElement("input",{type:"checkbox",checked:p.requirePasscode,onChange:x=>L({...p,requirePasscode:x.target.checked}),
 className:"w-5 h-5 accent-red-600 rounded cursor-pointer"}),React.createElement("span",{className:"text-sm font-bold text-slate-300"},"Require Admin Passcode for Actions")),React.createElement("p",{className:"text-[10px] text-slate-500 mt-1 ml-8"},"Kung naka-check ito, hihingin ng system ang Admin Passcode tuwing magde-delete o mag-e-edit sa Management/Inventory modules ang role na ito.")),React.createElement("div",null,React.createElement("div",{className:"flex justify-between items-end border-b border-[#1f2937] pb-2 mb-4"},React.createElement("h4",{className:"font-bold text-white"},"Accessible Modules"),React.createElement("label",{className:"flex items-center gap-2 cursor-pointer text-xs font-bold text-blue-400"},React.createElement("input",{type:"checkbox",checked:p.tabs.includes("all"),onChange:x=>L({...p,tabs:x.target.checked?["all"]:[]}),className:"accent-blue-600"}),"Grant Full Access")),React.createElement("div",{className:`grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 ${p.tabs.includes("all")?"opacity-50 pointer-events-none":""}`},["General","Sales","Management","Finance","HR","Reports","Admin"].map(x=>React.createElement("div",{key:x},React.createElement("h5",{className:"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2"},x),React.createElement("div",{className:"space-y-2"},b.filter(u=>u.group===x).map(u=>React.createElement("label",{key:u.id,
 className:"flex items-center gap-2 cursor-pointer group hover:bg-[#1a2234] p-1.5 rounded transition-colors"},React.createElement("input",{type:"checkbox",checked:p.tabs.includes(u.id),onChange:()=>w(u.id),className:"w-4 h-4 accent-blue-600 rounded"}),React.createElement("span",{className:"text-sm text-slate-300 group-hover:text-blue-400 transition-colors"},u.label))))))))),React.createElement("div",{className:"p-4 border-t border-[#1f2937] bg-[#151a27] flex justify-end gap-3 rounded-b-xl shrink-0 transition-colors duration-300"},React.createElement("button",{type:"button",onClick:()=>L(null),className:"px-4 py-2 font-bold text-slate-400 hover:text-white transition-colors bg-[#1f2937] hover:bg-[#2d3748] rounded-lg text-xs"},"Cancel"),React.createElement("button",{type:"button",onClick:t,className:"bg-purple-600 hover:bg-purple-700 text-white font-bold px-6 py-2 rounded-lg shadow-md transition-all hover:-translate-y-0.5 text-xs"},"Apply Role Rules")))))}function AdminBookingView({db:e,notify:t,requestAction:a}){const s=React.createElement,l=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],o={Sun:'Sunday',Mon:'Monday',Tue:'Tuesday',Wed:'Wednesday',Thu:'Thursday',Fri:'Friday',Sat:'Saturday'
