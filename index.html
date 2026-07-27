@@ -2733,7 +2733,7 @@
   ];
   const EXPORT_PAGE_SIZE = 200;
   const SERVER_IMPORT_CHUNK = 100;
-  const MIGRATION_SERVICE_VERSION = "2026-07-27-drive-restore-v4-client-firestore";
+  const MIGRATION_SERVICE_VERSION = "2026-07-27-drive-restore-v5-asset-marker-fix";
   const ASSET_FIELD_RE = /(image|photo|picture|receipt|proof|attachment|thumbnail|avatar|logo|qr|signature|document|file)/i;
   const ASSET_URL_RE = /\.(png|jpe?g|webp|gif|bmp|svg|pdf)(?:[?#].*)?$/i;
 
@@ -3159,7 +3159,7 @@
         throw new Error("Google Drive upload failed for " + asset.path + ": " + String(lastError && lastError.message || lastError || "Unknown Drive error"));
       }
       map.set(asset.path, result.url);
-      onProgress({ phase: "drive", current: i + 1, total: unique.length, percent: unique.length ? Math.round((i + 1) / unique.length * 35) : 35, message: "Uploading photos to Google Drive · " + (i + 1) + "/" + unique.length });
+      onProgress({ phase: "drive", current: i + 1, total: unique.length, percent: unique.length ? Math.round((i + 1) / unique.length * 35) : 35, message: (result && result.reused ? "Reusing existing Drive photos · " : "Uploading photos to Google Drive · ") + (i + 1) + "/" + unique.length });
     }
     return map;
   }
@@ -3169,6 +3169,22 @@
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     return bytes;
+  }
+
+  // Resolve ZIP asset markers to their Google Drive URLs before Firestore conversion.
+  // Kept as a separate recursive step so nested objects/arrays and repeated photo
+  // references are handled consistently during a resumed restore.
+  function replaceAssetMarkers(value, assetMap) {
+    if (value === null || value === undefined || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map(item => replaceAssetMarkers(item, assetMap));
+    if (String(value.__immsType || "") === "asset") {
+      const url = assetMap.get(String(value.path || ""));
+      if (!url) throw new Error("Google Drive URL is missing for " + String(value.path || "unknown asset"));
+      return url;
+    }
+    const output = {};
+    for (const key of Object.keys(value)) output[key] = replaceAssetMarkers(value[key], assetMap);
+    return output;
   }
 
   function restoreFirestoreValue(value, assetMap, dbRef, insideArray) {
