@@ -40,6 +40,7 @@
 <head>
   <!-- IMMS Firestore full ZIP backup/restore + write-quota saver | 2026-07-27 -->
   <meta charset="UTF-8">
+  <meta name="imms-gas-endpoint" content="<?= getIMMSWebAppUrl_() ?>">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>IMMS - Integrated Motorshop Management System</title>
   <link rel="preconnect" href="https://cdn.tailwindcss.com">
@@ -2732,6 +2733,7 @@
   ];
   const EXPORT_PAGE_SIZE = 200;
   const SERVER_IMPORT_CHUNK = 100;
+  const MIGRATION_SERVICE_VERSION = "2026-07-27-drive-restore-v2";
   const ASSET_FIELD_RE = /(image|photo|picture|receipt|proof|attachment|thumbnail|avatar|logo|qr|signature|document|file)/i;
   const ASSET_URL_RE = /\.(png|jpe?g|webp|gif|bmp|svg|pdf)(?:[?#].*)?$/i;
 
@@ -2791,8 +2793,9 @@
   function gasCall(functionName, payload) {
     return new Promise((resolve, reject) => {
       const finish = result => {
-        if (result && result.ok === false) reject(new Error(result.error || result.message || "Apps Script request failed."));
-        else resolve(result || {});
+        if (result && (result.ok === false || result.success === false)) {
+          reject(new Error(result.error || result.message || "Apps Script request failed."));
+        } else resolve(result || {});
       };
 
       // Fastest path when the POS is opened from the Apps Script /exec page.
@@ -2801,7 +2804,8 @@
           const runner = google.script.run
             .withSuccessHandler(finish)
             .withFailureHandler(error => reject(new Error(String(error && error.message || error))));
-          if (functionName === "getDriveAssetForBackup") runner.getDriveAssetForBackup(payload || {});
+          if (functionName === "getMigrationServiceStatus") runner.getMigrationServiceStatus();
+          else if (functionName === "getDriveAssetForBackup") runner.getDriveAssetForBackup(payload || {});
           else if (functionName === "uploadDriveMigrationAsset") runner.uploadDriveMigrationAsset(payload || {});
           else if (functionName === "restoreFirestoreMigrationChunk") runner.restoreFirestoreMigrationChunk(payload || {});
           else reject(new Error("Unsupported Apps Script migration function: " + functionName));
@@ -2814,6 +2818,7 @@
       // Automatic fallback for cached pages, preview URLs, Cloudflare/static copies,
       // and browsers where google.script.run is not injected. No setup button needed.
       const actionMap = {
+        getMigrationServiceStatus: "migration_health",
         getDriveAssetForBackup: "migration_asset_read",
         uploadDriveMigrationAsset: "migration_asset_upload",
         restoreFirestoreMigrationChunk: "migration_firestore_restore_chunk"
@@ -2824,12 +2829,15 @@
         return;
       }
 
+      const endpointMeta = document.querySelector('meta[name="imms-gas-endpoint"]');
+      const renderedEndpoint = endpointMeta ? String(endpointMeta.getAttribute("content") || "").trim() : "";
       const endpoint = String(
+        (renderedEndpoint && renderedEndpoint.indexOf("<?") < 0 ? renderedEndpoint : "") ||
         window.IMMS_GAS_FAILOVER_URL ||
         (typeof WEB_APP_URL !== "undefined" ? WEB_APP_URL : "") ||
         ""
       ).trim();
-      if (!endpoint || endpoint.indexOf("PASTE") >= 0) {
+      if (!endpoint || endpoint.indexOf("PASTE") >= 0 || endpoint.indexOf("<?") >= 0) {
         reject(new Error("Apps Script migration service URL is not configured."));
         return;
       }
@@ -3053,6 +3061,14 @@
   }
 
   async function uploadAssetsToDrive(zip, manifest, onProgress) {
+    const health = await gasCall("getMigrationServiceStatus", {});
+    if (!health || health.driveReady !== true) {
+      throw new Error((health && (health.error || health.message)) || "Google Drive migration service is not ready.");
+    }
+    if (health.serviceVersion !== MIGRATION_SERVICE_VERSION) {
+      throw new Error("The deployed Code.gs is outdated. Deploy the Code.gs included with this ZIP as a New Version, then reopen the /exec URL.");
+    }
+
     const assets = Array.isArray(manifest.assets) ? manifest.assets : [];
     const map = new Map();
     const unique = [];
@@ -3067,7 +3083,7 @@
       const file = zip.file(asset.path);
       if (!file) throw new Error("Missing photo inside ZIP: " + asset.path);
       const blob = await file.async("blob");
-      const result = await gasCall("uploadDriveMigrationAsset", {
+      const payload = {
         backupId: manifest.backupId || "backup",
         path: asset.path,
         filename: asset.path.split("/").pop() || "asset",
@@ -3077,8 +3093,28 @@
         collection: asset.collection || "",
         documentId: asset.documentId || "",
         fieldPath: asset.fieldPath || ""
-      });
-      if (!result || !result.url) throw new Error("Google Drive upload failed for " + asset.path);
+      };
+
+      let result = null;
+      let lastError = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          result = await gasCall("uploadDriveMigrationAsset", payload);
+          if (!result || result.ok === false || !result.url) {
+            throw new Error(result && (result.error || result.message) || "The Drive service returned no file URL.");
+          }
+          if (result.serviceVersion && result.serviceVersion !== MIGRATION_SERVICE_VERSION) {
+            throw new Error("The deployed Code.gs is outdated.");
+          }
+          break;
+        } catch (error) {
+          lastError = error;
+          if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 700 * attempt));
+        }
+      }
+      if (!result || !result.url) {
+        throw new Error("Google Drive upload failed for " + asset.path + ": " + String(lastError && lastError.message || lastError || "Unknown Drive error"));
+      }
       map.set(asset.path, result.url);
       onProgress({ phase: "drive", current: i + 1, total: unique.length, percent: unique.length ? Math.round((i + 1) / unique.length * 35) : 35, message: "Uploading photos to Google Drive · " + (i + 1) + "/" + unique.length });
     }
