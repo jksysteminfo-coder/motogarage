@@ -2733,7 +2733,7 @@
   ];
   const EXPORT_PAGE_SIZE = 200;
   const SERVER_IMPORT_CHUNK = 100;
-  const MIGRATION_SERVICE_VERSION = "2026-07-27-drive-restore-v2";
+  const MIGRATION_SERVICE_VERSION = "2026-07-27-drive-restore-v3";
   const ASSET_FIELD_RE = /(image|photo|picture|receipt|proof|attachment|thumbnail|avatar|logo|qr|signature|document|file)/i;
   const ASSET_URL_RE = /\.(png|jpe?g|webp|gif|bmp|svg|pdf)(?:[?#].*)?$/i;
 
@@ -2792,112 +2792,113 @@
 
   let IMMS_GAS_BRIDGE_SEQUENCE = 0;
 
-  function gasCall(functionName, payload) {
+  function gasEndpoint() {
+    const endpoint = String(
+      window.IMMS_GAS_FAILOVER_URL ||
+      (typeof WEB_APP_URL !== "undefined" ? WEB_APP_URL : "") ||
+      ""
+    ).trim();
+    if (!endpoint || endpoint.indexOf("PASTE") >= 0 || !/\/exec(?:$|[?#])/i.test(endpoint)) {
+      throw new Error("Apps Script /exec URL is not configured in index.html.");
+    }
+    return endpoint;
+  }
+
+  function jsonpRequest(endpoint, params, timeoutMs) {
     return new Promise((resolve, reject) => {
-      const actionMap = {
-        getMigrationServiceStatus: "migration_health",
-        getDriveAssetForBackup: "migration_asset_read",
-        uploadDriveMigrationAsset: "migration_asset_upload",
-        restoreFirestoreMigrationChunk: "migration_firestore_restore_chunk"
-      };
-      const action = actionMap[functionName];
-      if (!action) {
-        reject(new Error("Unsupported Apps Script migration function: " + functionName));
-        return;
-      }
-
-      const endpoint = String(
-        window.IMMS_GAS_FAILOVER_URL ||
-        (typeof WEB_APP_URL !== "undefined" ? WEB_APP_URL : "") ||
-        ""
-      ).trim();
-      if (!endpoint || endpoint.indexOf("PASTE") >= 0 || !/\/exec(?:$|[?#])/i.test(endpoint)) {
-        reject(new Error("Apps Script /exec URL is not configured in index.html."));
-        return;
-      }
-
-      const requestId = "imms-" + Date.now() + "-" + (++IMMS_GAS_BRIDGE_SEQUENCE) + "-" + Math.random().toString(36).slice(2);
-      const frameName = "immsGasBridgeFrame";
-      let frame = document.getElementById(frameName);
-      if (!frame) {
-        frame = document.createElement("iframe");
-        frame.id = frameName;
-        frame.name = frameName;
-        frame.setAttribute("aria-hidden", "true");
-        frame.style.display = "none";
-        document.body.appendChild(frame);
-      }
-
-      let settled = false;
-      const timeout = setTimeout(() => {
-        cleanup();
-        reject(new Error("Apps Script backend did not respond. Check the deployed /exec URL and run authorizeIMMSMigration once in Apps Script."));
-      }, 180000);
+      const callbackName = "__immsGasJsonp_" + Date.now() + "_" + (++IMMS_GAS_BRIDGE_SEQUENCE) + "_" + Math.random().toString(36).slice(2);
+      const query = new URLSearchParams(Object.assign({}, params || {}, { callback: callbackName, _ts: Date.now() }));
+      const script = document.createElement("script");
+      let finished = false;
+      const timer = setTimeout(() => finish(new Error("Apps Script backend did not respond.")), timeoutMs || 30000);
 
       function cleanup() {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        window.removeEventListener("message", onMessage);
-        if (form && form.parentNode) form.parentNode.removeChild(form);
+        clearTimeout(timer);
+        try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+        try { script.remove(); } catch (_) {}
       }
 
-      function finish(result) {
+      function finish(error, value) {
+        if (finished) return;
+        finished = true;
         cleanup();
-        if (result && (result.ok === false || result.success === false)) {
-          reject(new Error(result.error || result.message || "Apps Script request failed."));
-        } else {
-          resolve(result || {});
-        }
+        if (error) reject(error); else resolve(value);
       }
 
-      function onMessage(event) {
-        const data = event && event.data;
-        if (!data || data.channel !== "IMMS_GAS_BRIDGE" || data.requestId !== requestId) return;
-        finish(data.result || {});
-      }
+      window[callbackName] = value => finish(null, value);
+      script.async = true;
+      script.onerror = () => finish(new Error("Apps Script /exec returned HTTP 403 or could not be loaded. Redeploy the Web App with Execute as: Me and Who has access: Anyone."));
+      script.src = endpoint + (endpoint.includes("?") ? "&" : "?") + query.toString();
+      document.head.appendChild(script);
+    });
+  }
 
-      window.addEventListener("message", onMessage);
+  async function pollGasResult(endpoint, requestId) {
+    const started = Date.now();
+    let delay = 500;
+    while (Date.now() - started < 180000) {
+      const response = await jsonpRequest(endpoint, { api: "migration_result", requestId }, 20000);
+      if (response && response.pending === false) return response.result || {};
+      await new Promise(resolve => setTimeout(resolve, delay));
+      delay = Math.min(1800, Math.round(delay * 1.25));
+    }
+    throw new Error("Apps Script processing timed out. Check Apps Script Executions for the exact error.");
+  }
 
-      const form = document.createElement("form");
-      form.method = "POST";
-      form.action = endpoint;
-      form.target = frameName;
-      form.enctype = "application/x-www-form-urlencoded";
-      form.acceptCharset = "UTF-8";
-      form.style.display = "none";
+  function gasCall(functionName, payload) {
+    const actionMap = {
+      getMigrationServiceStatus: "migration_health",
+      getDriveAssetForBackup: "migration_asset_read",
+      uploadDriveMigrationAsset: "migration_asset_upload",
+      restoreFirestoreMigrationChunk: "migration_firestore_restore_chunk"
+    };
+    const action = actionMap[functionName];
+    if (!action) return Promise.reject(new Error("Unsupported Apps Script migration function: " + functionName));
 
-      const body = Object.assign({}, payload || {}, {
-        action: action,
-        requestId: requestId,
-        transport: "iframe",
-        callbackOrigin: window.location.origin || "*"
+    let endpoint;
+    try { endpoint = gasEndpoint(); } catch (error) { return Promise.reject(error); }
+
+    // Read-only calls use JSONP directly. This works from GitHub/Cloudflare Pages
+    // without CORS and without loading the Apps Script response inside an iframe.
+    if (functionName === "getMigrationServiceStatus") {
+      return jsonpRequest(endpoint, { api: "migration_health" }, 30000).then(result => {
+        if (result && (result.ok === false || result.success === false)) throw new Error(result.error || result.message || "Apps Script request failed.");
+        return result || {};
       });
+    }
+    if (functionName === "getDriveAssetForBackup") {
+      return jsonpRequest(endpoint, Object.assign({ api: "migration_asset_read" }, payload || {}), 120000).then(result => {
+        if (result && (result.ok === false || result.success === false)) throw new Error(result.error || result.message || "Apps Script request failed.");
+        return result || {};
+      });
+    }
 
-      const payloadField = document.createElement("textarea");
-      payloadField.name = "payload";
-      payloadField.value = JSON.stringify(body);
-      form.appendChild(payloadField);
+    // Write calls are submitted as an opaque no-CORS POST. The result is stored
+    // server-side under requestId and retrieved through a JSONP polling endpoint.
+    // This avoids the script.googleusercontent.com iframe 403 seen on Pages.dev.
+    const requestId = "imms-" + Date.now() + "-" + (++IMMS_GAS_BRIDGE_SEQUENCE) + "-" + Math.random().toString(36).slice(2);
+    const body = Object.assign({}, payload || {}, {
+      action,
+      requestId,
+      transport: "async"
+    });
 
-      const transportField = document.createElement("input");
-      transportField.type = "hidden";
-      transportField.name = "transport";
-      transportField.value = "iframe";
-      form.appendChild(transportField);
+    try {
+      fetch(endpoint, {
+        method: "POST",
+        mode: "no-cors",
+        cache: "no-store",
+        credentials: "omit",
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        body: JSON.stringify(body)
+      }).catch(() => {});
+    } catch (_) {}
 
-      const originField = document.createElement("input");
-      originField.type = "hidden";
-      originField.name = "callbackOrigin";
-      originField.value = window.location.origin || "*";
-      form.appendChild(originField);
-
-      document.body.appendChild(form);
-      try {
-        form.submit();
-      } catch (error) {
-        cleanup();
-        reject(new Error("Could not contact Apps Script backend: " + String(error && error.message || error)));
+    return pollGasResult(endpoint, requestId).then(result => {
+      if (result && (result.ok === false || result.success === false)) {
+        throw new Error(result.error || result.message || "Apps Script request failed.");
       }
+      return result || {};
     });
   }
 
