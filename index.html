@@ -1,6 +1,5 @@
-<!-- IMMS silent automatic Google Sheets failover UI fix | 2026-07-27 -->
+<!-- IMMS previous Firestore + complete ZIP migration + Google Drive photos | 2026-07-27 -->
 <!DOCTYPE html>
-<!-- IMMS simple same-web-app Google Sheets failover; no API token | 2026-07-27 -->
 <!-- IMMS POS receipt integrity + pending-write visibility fix | 2026-07-27 -->
 <!-- IMMS Firestore quota-safe cashier aggregates + no polling | 2026-07-27 -->
 <!-- IMMS polished cashier close prefetch + opening history + initial fund tally | 2026-07-27 -->
@@ -2664,7 +2663,6 @@
   
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
@@ -2733,7 +2731,7 @@
     "payment_logs", "quotations", "service_warranty", "cashier_sessions", "cashier_active_sessions"
   ];
   const EXPORT_PAGE_SIZE = 200;
-  const IMPORT_BATCH_SIZE = 180;
+  const SERVER_IMPORT_CHUNK = 100;
   const ASSET_FIELD_RE = /(image|photo|picture|receipt|proof|attachment|thumbnail|avatar|logo|qr|signature|document|file)/i;
   const ASSET_URL_RE = /\.(png|jpe?g|webp|gif|bmp|svg|pdf)(?:[?#].*)?$/i;
 
@@ -2753,13 +2751,24 @@
     return map[String(mime || "").toLowerCase()] || "bin";
   }
 
-  function blobToDataUrl(blob) {
+  function blobToBase64(blob) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
+      reader.onload = () => {
+        const result = String(reader.result || "");
+        const comma = result.indexOf(",");
+        resolve(comma >= 0 ? result.slice(comma + 1) : result);
+      };
       reader.onerror = () => reject(reader.error || new Error("Unable to read asset."));
       reader.readAsDataURL(blob);
     });
+  }
+
+  function base64ToBlob(base64, mime) {
+    const binary = atob(String(base64 || "").replace(/\s/g, ""));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime || "application/octet-stream" });
   }
 
   function dataUrlToBlob(value) {
@@ -2767,15 +2776,8 @@
     if (!match) throw new Error("Invalid data URL.");
     const mime = match[1] || "application/octet-stream";
     const payload = match[3] || "";
-    let bytes;
-    if (match[2]) {
-      const binary = atob(payload.replace(/\s/g, ""));
-      bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    } else {
-      bytes = new TextEncoder().encode(decodeURIComponent(payload));
-    }
-    return new Blob([bytes], { type: mime });
+    if (match[2]) return base64ToBlob(payload, mime);
+    return new Blob([decodeURIComponent(payload)], { type: mime });
   }
 
   async function sha256(blob) {
@@ -2784,6 +2786,27 @@
       const digest = await window.crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
       return Array.from(new Uint8Array(digest)).map(v => v.toString(16).padStart(2, "0")).join("");
     } catch (_) { return ""; }
+  }
+
+  function gasCall(functionName, payload) {
+    return new Promise((resolve, reject) => {
+      if (window.google && google.script && google.script.run) {
+        try {
+          const runner = google.script.run
+            .withSuccessHandler(result => {
+              if (result && result.ok === false) reject(new Error(result.error || result.message || "Apps Script request failed."));
+              else resolve(result || {});
+            })
+            .withFailureHandler(error => reject(new Error(String(error && error.message || error))));
+          if (functionName === "getDriveAssetForBackup") runner.getDriveAssetForBackup(payload || {});
+          else if (functionName === "uploadDriveMigrationAsset") runner.uploadDriveMigrationAsset(payload || {});
+          else if (functionName === "restoreFirestoreMigrationChunk") runner.restoreFirestoreMigrationChunk(payload || {});
+          else reject(new Error("Unsupported Apps Script migration function: " + functionName));
+          return;
+        } catch (error) { reject(error); return; }
+      }
+      reject(new Error("Google Apps Script bridge is unavailable. Open the deployed Apps Script /exec URL."));
+    });
   }
 
   async function fetchAsset(url) {
@@ -2798,8 +2821,40 @@
     }
   }
 
+  async function fetchAssetThroughAppsScript(url) {
+    const result = await gasCall("getDriveAssetForBackup", { url: String(url || "") });
+    if (!result || !result.base64) throw new Error(result && result.error || "Apps Script could not read the photo.");
+    return {
+      blob: base64ToBlob(result.base64, result.mimeType || "application/octet-stream"),
+      filename: result.filename || "asset"
+    };
+  }
+
   function isTimestamp(value) {
     return !!(value && typeof value === "object" && typeof value.seconds === "number" && typeof value.nanoseconds === "number" && typeof value.toDate === "function");
+  }
+
+  async function addAssetToZip(blob, ctx, fieldPath, originalKind, originalUrl, preferredName) {
+    const index = ++ctx.assetCounter.value;
+    const mime = blob.type || "application/octet-stream";
+    const suffix = extensionForMime(mime);
+    const base = safeSegment(preferredName || fieldPath || "asset").replace(/\.[a-z0-9]{1,8}$/i, "");
+    const assetPath = ["assets", safeSegment(ctx.collection), safeSegment(ctx.documentId), base + "_" + index + "." + suffix].join("/");
+    ctx.zip.file(assetPath, blob);
+    const item = {
+      path: assetPath,
+      collection: ctx.collection,
+      documentId: ctx.documentId,
+      fieldPath,
+      mime,
+      size: blob.size,
+      sha256: await sha256(blob),
+      originalKind,
+      originalUrl
+    };
+    ctx.assets.push(item);
+    if (originalUrl) ctx.sourceAssetCache.set(originalUrl, item);
+    return { __immsType: "asset", path: assetPath, mime, originalKind, originalUrl, size: blob.size, sha256: item.sha256 };
   }
 
   async function encodeValue(value, ctx, path) {
@@ -2809,34 +2864,29 @@
       let blob = null;
       let originalKind = "";
       let originalUrl = "";
+      let preferredName = fieldPath || "asset";
       if (/^data:/i.test(value)) {
         try { blob = dataUrlToBlob(value); originalKind = "data-url"; } catch (_) {}
-      } else if (/^https?:\/\//i.test(value) && (ASSET_FIELD_RE.test(fieldPath) || ASSET_URL_RE.test(value))) {
-        try { blob = await fetchAsset(value); originalKind = "url"; originalUrl = value; }
-        catch (error) {
-          ctx.unresolved.push({ collection: ctx.collection, documentId: ctx.documentId, fieldPath, url: value, error: String(error && error.message || error) });
-          return value;
+      } else if (/^https?:\/\//i.test(value) && (ASSET_FIELD_RE.test(fieldPath) || ASSET_URL_RE.test(value) || /drive\.google\.com|googleusercontent\.com/i.test(value))) {
+        if (ctx.sourceAssetCache.has(value)) {
+          const cached = ctx.sourceAssetCache.get(value);
+          return { __immsType: "asset", path: cached.path, mime: cached.mime, originalKind: cached.originalKind, originalUrl: value, size: cached.size, sha256: cached.sha256 };
+        }
+        originalKind = "url";
+        originalUrl = value;
+        try { blob = await fetchAsset(value); }
+        catch (_) {
+          try {
+            const serverAsset = await fetchAssetThroughAppsScript(value);
+            blob = serverAsset.blob;
+            preferredName = serverAsset.filename || preferredName;
+          } catch (error) {
+            ctx.unresolved.push({ collection: ctx.collection, documentId: ctx.documentId, fieldPath, url: value, error: String(error && error.message || error) });
+            return value;
+          }
         }
       }
-      if (blob) {
-        const index = ++ctx.assetCounter.value;
-        const mime = blob.type || "application/octet-stream";
-        const assetPath = ["assets", safeSegment(ctx.collection), safeSegment(ctx.documentId), safeSegment(fieldPath || "asset") + "_" + index + "." + extensionForMime(mime)].join("/");
-        ctx.zip.file(assetPath, blob);
-        const item = {
-          path: assetPath,
-          collection: ctx.collection,
-          documentId: ctx.documentId,
-          fieldPath,
-          mime,
-          size: blob.size,
-          sha256: await sha256(blob),
-          originalKind,
-          originalUrl
-        };
-        ctx.assets.push(item);
-        return { __immsType: "asset", path: assetPath, mime, originalKind, originalUrl, size: blob.size, sha256: item.sha256 };
-      }
+      if (blob) return addAssetToZip(blob, ctx, fieldPath, originalKind, originalUrl, preferredName);
       return value;
     }
     if (typeof value === "number") {
@@ -2851,12 +2901,8 @@
     if (value && typeof value.latitude === "number" && typeof value.longitude === "number") return { __immsType: "geopoint", latitude: value.latitude, longitude: value.longitude };
     if (value && typeof value.path === "string" && value.firestore) return { __immsType: "reference", path: value.path };
     if (value && typeof value.toUint8Array === "function") {
-      const blob = new Blob([value.toUint8Array()], { type: "application/octet-stream" });
-      const index = ++ctx.assetCounter.value;
-      const assetPath = ["assets", safeSegment(ctx.collection), safeSegment(ctx.documentId), "firestore_blob_" + index + ".bin"].join("/");
-      ctx.zip.file(assetPath, blob);
-      ctx.assets.push({ path: assetPath, collection: ctx.collection, documentId: ctx.documentId, fieldPath: path.join("."), mime: blob.type, size: blob.size, originalKind: "firestore-blob", originalUrl: "" });
-      return { __immsType: "firestore-blob", path: assetPath };
+      const bytes = value.toUint8Array();
+      return { __immsType: "firestore-bytes", base64: btoa(String.fromCharCode.apply(null, Array.from(bytes))) };
     }
     if (Array.isArray(value)) {
       const output = [];
@@ -2871,69 +2917,24 @@
     return String(value);
   }
 
-  async function decodeValue(value, ctx) {
-    if (value === null || value === undefined || typeof value !== "object") return value;
-    if (Array.isArray(value)) {
-      const output = [];
-      for (const item of value) output.push(await decodeValue(item, ctx));
-      return output;
-    }
-    if (value.__immsType === "undefined") return null;
-    if (value.__immsType === "date") return new Date(value.value);
-    if (value.__immsType === "timestamp") return new firebase.firestore.Timestamp(Number(value.seconds) || 0, Number(value.nanoseconds) || 0);
-    if (value.__immsType === "geopoint") return new firebase.firestore.GeoPoint(Number(value.latitude) || 0, Number(value.longitude) || 0);
-    if (value.__immsType === "reference") return ctx.db.doc(String(value.path || ""));
-    if (value.__immsType === "number") {
-      if (value.value === "NaN") return NaN;
-      if (value.value === "Infinity") return Infinity;
-      if (value.value === "-Infinity") return -Infinity;
-    }
-    if (value.__immsType === "firestore-blob") {
-      const file = ctx.zip.file(value.path);
-      if (!file) throw new Error("Missing backup asset: " + value.path);
-      const bytes = new Uint8Array(await file.async("arraybuffer"));
-      return firebase.firestore.Blob.fromUint8Array(bytes);
-    }
-    if (value.__immsType === "asset") {
-      if (ctx.assetCache.has(value.path)) return ctx.assetCache.get(value.path);
-      const file = ctx.zip.file(value.path);
-      if (!file) throw new Error("Missing backup photo: " + value.path);
-      const blob = await file.async("blob");
-      let restored = "";
-      if (ctx.uploadAssets && firebase.storage) {
-        try {
-          const storagePath = "imms-migration/" + safeSegment(ctx.backupId) + "/" + value.path;
-          const ref = firebase.storage().ref().child(storagePath);
-          await ref.put(blob, { contentType: value.mime || blob.type || "application/octet-stream", customMetadata: { immsBackupId: ctx.backupId } });
-          restored = await ref.getDownloadURL();
-        } catch (error) {
-          ctx.warnings.push("Storage upload failed for " + value.path + ": " + String(error && error.message || error));
-        }
-      }
-      if (!restored) {
-        if (value.originalKind === "url" && value.originalUrl && blob.size > 700000) restored = value.originalUrl;
-        else restored = await blobToDataUrl(blob);
-      }
-      ctx.assetCache.set(value.path, restored);
-      return restored;
-    }
-    const output = {};
-    for (const key of Object.keys(value)) output[key] = await decodeValue(value[key], ctx);
-    return output;
-  }
-
   async function exportCollection(db, name, zip, shared, onProgress) {
     const rows = [];
     let lastDoc = null;
-    let page = 0;
     while (true) {
       let query = db.collection(name).orderBy(firebase.firestore.FieldPath.documentId()).limit(EXPORT_PAGE_SIZE);
       if (lastDoc) query = query.startAfter(lastDoc);
       const snap = await query.get();
       if (snap.empty) break;
-      page++;
       for (const doc of snap.docs) {
-        const ctx = { zip, assets: shared.assets, unresolved: shared.unresolved, assetCounter: shared.assetCounter, collection: name, documentId: doc.id };
+        const ctx = {
+          zip,
+          assets: shared.assets,
+          unresolved: shared.unresolved,
+          assetCounter: shared.assetCounter,
+          sourceAssetCache: shared.sourceAssetCache,
+          collection: name,
+          documentId: doc.id
+        };
         rows.push({ id: doc.id, data: await encodeValue(doc.data(), ctx, []) });
         shared.documentCount++;
         onProgress({ phase: "export", collection: name, current: shared.documentCount, message: "Exporting " + name + " · " + shared.documentCount + " records" });
@@ -2949,7 +2950,7 @@
     if (!window.JSZip) throw new Error("ZIP library failed to load. Refresh and try again.");
     const zip = new JSZip();
     const backupId = "IMMS-" + Date.now().toString(36).toUpperCase();
-    const shared = { assets: [], unresolved: [], assetCounter: { value: 0 }, documentCount: 0 };
+    const shared = { assets: [], unresolved: [], assetCounter: { value: 0 }, sourceAssetCache: new Map(), documentCount: 0 };
     const counts = {};
     for (let i = 0; i < COLLECTIONS.length; i++) {
       const name = COLLECTIONS[i];
@@ -2958,11 +2959,11 @@
     }
     const manifest = {
       format: "IMMS_FULL_FIRESTORE_BACKUP",
-      schemaVersion: 2,
+      schemaVersion: 3,
       backupId,
       generatedAt: new Date().toISOString(),
       sourceProjectId: firebase.app().options.projectId || "",
-      sourceStorageBucket: firebase.app().options.storageBucket || "",
+      assetStorage: "GOOGLE_DRIVE",
       collections: COLLECTIONS,
       collectionCounts: counts,
       documentCount: shared.documentCount,
@@ -2976,13 +2977,14 @@
       "IMMS FULL DATABASE BACKUP",
       "Backup ID: " + backupId,
       "Created: " + manifest.generatedAt,
-      "Source project: " + manifest.sourceProjectId,
+      "Source Firestore project: " + manifest.sourceProjectId,
       "Documents: " + manifest.documentCount,
       "Photos/assets included: " + manifest.assetCount,
       "Unresolved remote assets: " + manifest.unresolvedAssetCount,
+      "Destination photo storage: Google Drive",
       "",
       "Restore this ZIP from Settings > Full Database Migration in an IMMS deployment connected to the destination Firebase project.",
-      "Document IDs, transaction references, dates, cashier sessions, sales, histories, photos and settings are preserved."
+      "The importer uploads included photos to Google Drive first, then restores Firestore records with original IDs, dates and transaction references."
     ].join("\n"));
     onProgress({ phase: "zip", percent: 72, message: "Compressing full backup…" });
     const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } }, meta => {
@@ -2999,44 +3001,94 @@
 
   function isQuotaError(error) {
     const text = String(error && (error.code || error.message) || error || "").toLowerCase();
-    return text.includes("resource-exhausted") || text.includes("quota") || text.includes("daily limit");
+    return text.includes("resource_exhausted") || text.includes("resource-exhausted") || text.includes("quota") || text.includes("daily limit") || text.includes("429");
   }
 
-  async function restoreBackup(file, db, options, onProgress) {
+  async function uploadAssetsToDrive(zip, manifest, onProgress) {
+    const assets = Array.isArray(manifest.assets) ? manifest.assets : [];
+    const map = new Map();
+    const unique = [];
+    const seen = new Set();
+    for (const asset of assets) {
+      if (!asset || !asset.path || seen.has(asset.path)) continue;
+      seen.add(asset.path);
+      unique.push(asset);
+    }
+    for (let i = 0; i < unique.length; i++) {
+      const asset = unique[i];
+      const file = zip.file(asset.path);
+      if (!file) throw new Error("Missing photo inside ZIP: " + asset.path);
+      const blob = await file.async("blob");
+      const result = await gasCall("uploadDriveMigrationAsset", {
+        backupId: manifest.backupId || "backup",
+        path: asset.path,
+        filename: asset.path.split("/").pop() || "asset",
+        mimeType: asset.mime || blob.type || "application/octet-stream",
+        base64: await blobToBase64(blob),
+        sha256: asset.sha256 || "",
+        collection: asset.collection || "",
+        documentId: asset.documentId || "",
+        fieldPath: asset.fieldPath || ""
+      });
+      if (!result || !result.url) throw new Error("Google Drive upload failed for " + asset.path);
+      map.set(asset.path, result.url);
+      onProgress({ phase: "drive", current: i + 1, total: unique.length, percent: unique.length ? Math.round((i + 1) / unique.length * 35) : 35, message: "Uploading photos to Google Drive · " + (i + 1) + "/" + unique.length });
+    }
+    return map;
+  }
+
+  function replaceAssetMarkers(value, assetMap) {
+    if (value === null || value === undefined || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map(item => replaceAssetMarkers(item, assetMap));
+    if (value.__immsType === "asset") {
+      const url = assetMap.get(value.path);
+      if (!url) throw new Error("Google Drive URL is missing for " + value.path);
+      return url;
+    }
+    const output = {};
+    for (const key of Object.keys(value)) output[key] = replaceAssetMarkers(value[key], assetMap);
+    return output;
+  }
+
+  async function restoreBackup(file, options, onProgress) {
     if (!window.JSZip) throw new Error("ZIP library failed to load. Refresh and try again.");
     const zip = await JSZip.loadAsync(file);
     const manifestFile = zip.file("manifest.json");
     if (!manifestFile) throw new Error("This is not a valid IMMS full backup ZIP.");
     const manifest = JSON.parse(await manifestFile.async("string"));
     if (manifest.format !== "IMMS_FULL_FIRESTORE_BACKUP") throw new Error("Unsupported backup format.");
+    const projectId = String(options && options.projectId || firebase.app().options.projectId || "").trim();
+    if (!projectId) throw new Error("Destination Firebase project ID is missing.");
+
+    onProgress({ phase: "drive", percent: 1, message: "Uploading included photos to Google Drive first…" });
+    const assetMap = await uploadAssetsToDrive(zip, manifest, onProgress);
+
     const collections = Array.isArray(manifest.collections) ? manifest.collections.slice() : COLLECTIONS.slice();
     collections.sort((a, b) => (a === "settings" ? 1 : b === "settings" ? -1 : 0));
     const total = collections.reduce((sum, name) => sum + Number(manifest.collectionCounts && manifest.collectionCounts[name] || 0), 0);
-    const ctx = {
-      db,
-      zip,
-      uploadAssets: options.uploadAssets !== false,
-      backupId: manifest.backupId || "backup",
-      assetCache: new Map(),
-      warnings: []
-    };
     let restored = 0;
-    let batch = db.batch();
-    let batchCount = 0;
+    let chunk = [];
+
     const commit = async () => {
-      if (!batchCount) return;
-      try { await batch.commit(); }
-      catch (error) {
+      if (!chunk.length) return;
+      try {
+        const result = await gasCall("restoreFirestoreMigrationChunk", {
+          projectId,
+          backupId: manifest.backupId || "backup",
+          documents: chunk
+        });
+        if (!result || result.ok === false) throw new Error(result && (result.error || result.message) || "Firestore restore failed.");
+      } catch (error) {
         if (isQuotaError(error)) {
-          const paused = new Error("Firestore daily write quota was reached after " + restored + " of " + total + " records. Keep this ZIP and run Restore again after the quota resets; matching document IDs will be safely overwritten.");
+          const paused = new Error("Firestore daily write quota was reached after " + restored + " of " + total + " records. Keep the same ZIP and upload it again after the quota resets. Existing document IDs are overwritten safely, so records will not duplicate.");
           paused.code = "imms/quota-paused";
           throw paused;
         }
         throw error;
       }
-      batch = db.batch();
-      batchCount = 0;
+      chunk = [];
     };
+
     for (const name of collections) {
       const collectionFile = zip.file("collections/" + name + ".json");
       if (!collectionFile) continue;
@@ -3044,17 +3096,15 @@
       if (!Array.isArray(rows)) continue;
       for (const row of rows) {
         if (!row || !row.id) continue;
-        const data = await decodeValue(row.data, ctx);
-        batch.set(db.collection(name).doc(String(row.id)), data, { merge: false });
-        batchCount++;
+        chunk.push({ collection: name, id: String(row.id), data: replaceAssetMarkers(row.data, assetMap) });
         restored++;
-        onProgress({ phase: "restore", collection: name, current: restored, total, percent: total ? Math.round(restored / total * 100) : 100, message: "Restoring " + name + " · " + restored + "/" + total });
-        if (batchCount >= IMPORT_BATCH_SIZE) await commit();
+        onProgress({ phase: "restore", collection: name, current: restored, total, percent: 35 + (total ? Math.round(restored / total * 65) : 65), message: "Restoring Firestore records · " + restored + "/" + total });
+        if (chunk.length >= SERVER_IMPORT_CHUNK) await commit();
       }
       await commit();
     }
     await commit();
-    return { manifest, restored, warnings: ctx.warnings };
+    return { manifest, restored, driveAssetCount: assetMap.size, destinationProjectId: projectId };
   }
 
   window.IMMS_DATABASE_MIGRATION = { collections: COLLECTIONS.slice(), createBackup, restoreBackup };
@@ -3067,7 +3117,6 @@
     const stateBusy = React.useState(false), busy = stateBusy[0], setBusy = stateBusy[1];
     const stateProgress = React.useState(0), progress = stateProgress[0], setProgress = stateProgress[1];
     const stateStatus = React.useState(""), status = stateStatus[0], setStatus = stateStatus[1];
-    const stateUpload = React.useState(true), uploadAssets = stateUpload[0], setUploadAssets = stateUpload[1];
     const inputRef = React.useRef(null);
 
     const onProgress = info => {
@@ -3082,7 +3131,8 @@
         const manifest = await createBackup(db, onProgress);
         setProgress(100);
         setStatus("Backup downloaded: " + manifest.documentCount + " records and " + manifest.assetCount + " photos/assets.");
-        notify(manifest.unresolvedAssetCount ? "Backup completed with " + manifest.unresolvedAssetCount + " remote photo URL(s) that could not be downloaded. See unresolved-assets.json inside the ZIP." : "Complete database backup downloaded.", manifest.unresolvedAssetCount ? "info" : "success");
+        if (manifest.unresolvedAssetCount) notify("Backup downloaded, but " + manifest.unresolvedAssetCount + " remote asset(s) could not be copied. Check unresolved-assets.json inside the ZIP.", "info");
+        else notify("Complete database backup downloaded.", "success");
         try { logAudit("FULL_DATABASE_EXPORT", "Downloaded full ZIP backup " + manifest.backupId + " with " + manifest.documentCount + " records"); } catch (_) {}
       } catch (error) {
         console.error("Full backup failed:", error);
@@ -3095,15 +3145,15 @@
       const file = event.target.files && event.target.files[0];
       event.target.value = "";
       if (!file || busy) return;
-      if (!window.confirm("Restore ALL records from this ZIP into the currently connected Firebase project? Matching document IDs will be overwritten. Continue?")) return;
+      const projectId = String(firebase.app().options.projectId || "");
+      if (!window.confirm("Restore ALL records and photos from this ZIP into Firebase project '" + projectId + "'? Photos will be uploaded to Google Drive first. Matching IDs will be overwritten. Continue?")) return;
       setBusy(true); setProgress(1); setStatus("Opening backup ZIP…");
       try {
-        const result = await restoreBackup(file, db, { uploadAssets }, onProgress);
+        const result = await restoreBackup(file, { projectId }, onProgress);
         setProgress(100);
-        setStatus("Restore completed: " + result.restored + " records. Refresh the system after the live listeners update.");
-        notify("Full database restore completed successfully.", "success");
+        setStatus("Restore completed: " + result.restored + " records and " + result.driveAssetCount + " Drive photos. Refresh the system.");
+        notify("Full database and Google Drive photo restore completed.", "success");
         try { logAudit("FULL_DATABASE_RESTORE", "Restored backup " + result.manifest.backupId + " with " + result.restored + " records"); } catch (_) {}
-        if (result.warnings.length) console.warn("IMMS restore warnings:", result.warnings);
       } catch (error) {
         console.error("Full restore failed:", error);
         setStatus(String(error && error.message || error));
@@ -3115,27 +3165,24 @@
       e("div", { className: "flex items-start justify-between gap-3 flex-wrap" },
         e("div", null,
           e("h3", { className: "font-bold text-slate-800 dark:text-white flex items-center gap-2" }, e("i", { className: "fas fa-database text-cyan-500" }), "Full Database Migration"),
-          e("p", { className: "text-xs text-slate-500 mt-1 max-w-2xl" }, "One ZIP contains all known collections, original document IDs, transaction references, dates, cashier sessions/history, settings and accessible photos. Download from the old Firebase project, then upload the same ZIP after connecting the system to the new Firebase project.")),
-        e("span", { className: "text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded bg-emerald-500/15 text-emerald-500" }, "Firestore only")
+          e("p", { className: "text-xs text-slate-500 mt-1 max-w-2xl" }, "One ZIP contains all known Firestore records, original document IDs, transaction references, dates, cashier sessions/history and included photos. During restore, photos go to Google Drive first and Firestore stores their Drive URLs.")),
+        e("span", { className: "text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded bg-emerald-500/15 text-emerald-500" }, "Firestore + Drive")
       ),
       e("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-3 mt-4" },
         e("button", { type: "button", disabled: busy, onClick: exportAll, className: "px-4 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-black disabled:opacity-50" }, e("i", { className: "fas fa-file-zipper mr-2" }), busy ? "Working…" : "Download Complete Backup ZIP"),
         e("button", { type: "button", disabled: busy, onClick: () => inputRef.current && inputRef.current.click(), className: "px-4 py-3 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-black disabled:opacity-50" }, e("i", { className: "fas fa-file-arrow-up mr-2" }), "Upload ZIP & Restore Everything"),
         e("input", { ref: inputRef, type: "file", accept: ".zip,application/zip", onChange: importFile, className: "hidden" })
       ),
-      e("label", { className: "mt-3 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 cursor-pointer" },
-        e("input", { type: "checkbox", checked: uploadAssets, onChange: ev => setUploadAssets(ev.target.checked), className: "accent-cyan-600" }),
-        "Upload included photos to the destination Firebase Storage when permitted; otherwise restore embedded photos exactly as data URLs."
-      ),
       (busy || status) && e("div", { className: "mt-4" },
         e("div", { className: "h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden" }, e("div", { className: "h-full bg-cyan-500 transition-all", style: { width: Math.max(2, Math.min(100, progress)) + "%" } })),
         e("p", { className: "text-[11px] text-slate-500 mt-2 break-words" }, status)
       ),
-      e("p", { className: "text-[10px] text-amber-500 mt-3" }, "For a new free-tier Firebase database, restore is limited by the destination project's daily write quota. If the ZIP contains more records than the available quota, the importer stops safely and can be run again after reset using the same ZIP and document IDs.")
+      e("p", { className: "text-[10px] text-amber-500 mt-3" }, "Restore writes through Apps Script using the Google account that owns this deployment. The account must have access to the destination Firebase project. Firestore's daily write quota still applies; re-uploading the same ZIP safely resumes because original document IDs are preserved.")
     );
   };
 })();
 </script>
+
 
 
   <style id="imms-final-responsive-pos-sales">
@@ -3322,7 +3369,7 @@
     })();
   </script>
 
-  <script>const{useState:useState,useEffect:useEffect,useMemo:useMemo,useRef:useRef}=React,firebaseConfig={apiKey:"AIzaSyAmSItO5LoaIVfiiot_qoYxpOykOmxKj3c",authDomain:"dubai-motorcyle.firebaseapp.com",projectId:"dubai-motorcyle",storageBucket:"dubai-motorcyle.firebasestorage.app",messagingSenderId:"519655546856",appId:"1:519655546856:web:6b3f6921d6be3456f3ce5d"};firebase.apps.length||firebase.initializeApp(firebaseConfig);const db=firebase.firestore();try{window.__IMMS_FIRESTORE_SETTINGS_APPLIED||(db.settings({ignoreUndefinedProperties:!0,merge:!0}),window.__IMMS_FIRESTORE_SETTINGS_APPLIED=!0)}catch(_e){}const safeDate=B=>{if(!B)return"No Date";try{const V=new Date(B);return isNaN(V.getTime())?"No Date":V.toLocaleDateString()+" "+V.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}catch{return"No Date"}};function EmailTemplatesEditor({notify:N}){const e=React.createElement,[T,sT]=useState(null),[busy,sBusy]=useState(!1),[tab,setTab]=useState('confirmation');useEffect(()=>{(async()=>{const R=await IMMS_API('getEmailTemplates',{});if(R&&R.success){sT(R.data)}else{N(R&&R.message||'Failed to load templates.','error')}})()},[]);const setField=(k,f,v)=>sT(p=>({...p,[k]:{...p[k],[f]:v}}));const withBookingLink=tpl=>{const body=String((tpl&&tpl.body)||'');return{...(tpl||{}),body:body.includes('{{bookingLink}}')||body.includes('appbooking.pages.dev')?body:body+'\n\nBook your next appointment here: {{bookingLink}}'}};const save=async()=>{if(!T)return;sBusy(!0);const payload={shopName:T.shopName,logoUrl:T.logoUrl||'',shopEmail:T.shopEmail||'',shopPhone:T.shopPhone||'',shopSocial:T.shopSocial||'',reminderHour:Number(T.reminderHour),bookingLink:IMMS_BOOKING_LINK,confirmation:withBookingLink(T.confirmation),appointmentReminder:withBookingLink(T.appointmentReminder),maintenanceReminder:withBookingLink(T.maintenanceReminder)};const R=await IMMS_API('saveEmailTemplates',payload);sBusy(!1);R&&R.success?(sT({...T,confirmation:payload.confirmation,appointmentReminder:payload.appointmentReminder,maintenanceReminder:payload.maintenanceReminder}),N('Email templates saved with booking link.')):N(R&&R.message||'Save failed.','error')};if(!T)return e('div',{className:'crm-card rounded-xl p-5 mb-4 text-sm text-slate-500'
+  <script>const{useState:useState,useEffect:useEffect,useMemo:useMemo,useRef:useRef}=React,firebaseConfig={apiKey:"AIzaSyAmSItO5LoaIVfiiot_qoYxpOykOmxKj3c",authDomain:"dubai-motorcyle.firebaseapp.com",projectId:"dubai-motorcyle",messagingSenderId:"519655546856",appId:"1:519655546856:web:6b3f6921d6be3456f3ce5d"};firebase.apps.length||firebase.initializeApp(firebaseConfig);const db=firebase.firestore();try{window.__IMMS_FIRESTORE_SETTINGS_APPLIED||(db.settings({ignoreUndefinedProperties:!0,merge:!0}),window.__IMMS_FIRESTORE_SETTINGS_APPLIED=!0)}catch(_e){}const safeDate=B=>{if(!B)return"No Date";try{const V=new Date(B);return isNaN(V.getTime())?"No Date":V.toLocaleDateString()+" "+V.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}catch{return"No Date"}};function EmailTemplatesEditor({notify:N}){const e=React.createElement,[T,sT]=useState(null),[busy,sBusy]=useState(!1),[tab,setTab]=useState('confirmation');useEffect(()=>{(async()=>{const R=await IMMS_API('getEmailTemplates',{});if(R&&R.success){sT(R.data)}else{N(R&&R.message||'Failed to load templates.','error')}})()},[]);const setField=(k,f,v)=>sT(p=>({...p,[k]:{...p[k],[f]:v}}));const withBookingLink=tpl=>{const body=String((tpl&&tpl.body)||'');return{...(tpl||{}),body:body.includes('{{bookingLink}}')||body.includes('appbooking.pages.dev')?body:body+'\n\nBook your next appointment here: {{bookingLink}}'}};const save=async()=>{if(!T)return;sBusy(!0);const payload={shopName:T.shopName,logoUrl:T.logoUrl||'',shopEmail:T.shopEmail||'',shopPhone:T.shopPhone||'',shopSocial:T.shopSocial||'',reminderHour:Number(T.reminderHour),bookingLink:IMMS_BOOKING_LINK,confirmation:withBookingLink(T.confirmation),appointmentReminder:withBookingLink(T.appointmentReminder),maintenanceReminder:withBookingLink(T.maintenanceReminder)};const R=await IMMS_API('saveEmailTemplates',payload);sBusy(!1);R&&R.success?(sT({...T,confirmation:payload.confirmation,appointmentReminder:payload.appointmentReminder,maintenanceReminder:payload.maintenanceReminder}),N('Email templates saved with booking link.')):N(R&&R.message||'Save failed.','error')};if(!T)return e('div',{className:'crm-card rounded-xl p-5 mb-4 text-sm text-slate-500'
 },'Loading email templates...');const tabs=[['confirmation','Booking Confirmation'],['appointmentReminder','Appointment Reminder (1 day before)'],['maintenanceReminder','Maintenance Reminder (1 day before)']];const cur=T[tab]||{subject:'',body:''};return e('div',{className:'crm-card rounded-xl p-5 mb-4'},e('div',{className:'flex items-center justify-between mb-3 flex-wrap gap-2'},e('h3',{className:'font-bold text-slate-800 dark:text-white flex items-center gap-2'},e('i',{className:'fas fa-envelope-open-text text-orange-500'}),'Email Templates')),e('div',{className:'grid grid-cols-1 md:grid-cols-2 gap-3 mb-4'},e('div',null,e('label',{className:'block text-xs font-semibold mb-1'},'Motorshop Name'),e('input',{value:T.shopName||'',onChange:ev=>sT({...T,shopName:ev.target.value}),placeholder:'e.g. Herniera Moto Garage',className:'w-full px-3 py-2 input-dark border rounded text-sm'}),e('p',{className:'text-[10px] text-slate-500 mt-1'},'Lalabas ito sa subject at body bilang ',e('code',null,'{{shopName}}'))),e('div',null,e('label',{className:'block text-xs font-semibold mb-1'},'Daily reminder hour (0-23, Asia/Manila)'),e('input',{type:'number',min:0,max:23,value:T.reminderHour||8,onChange:ev=>sT({...T,reminderHour:ev.target.value}),className:'w-full px-3 py-2 input-dark border rounded text-sm'}),e('p',{className:'text-[10px] text-slate-500 mt-1'},'Oras kada-araw kung kailan magpapadala ng 1-day reminders.')),e('div',{className:'md:col-span-2'},e('label',{
 className:'block text-xs font-semibold mb-1'},'Email Logo URL (optional)'),e('input',{value:T.logoUrl||'',onChange:ev=>sT({...T,logoUrl:ev.target.value}),placeholder:'https://yoursite.pages.dev/logo.png',className:'w-full px-3 py-2 input-dark border rounded text-sm'}),e('p',{className:'text-[10px] text-slate-500 mt-1'},'Public image URL ng logo na lalabas sa header ng lahat ng email. Iwanang blank para sa text emblem fallback.')),e('div',{className:'md:col-span-2 pt-2 mt-1 border-t border-slate-200 dark:border-[#2d3748]'},e('p',{className:'text-xs font-bold text-slate-600 dark:text-slate-300 mb-2'},e('i',{className:'fas fa-address-card text-orange-500 mr-1'}),'Shop Contact Info (lalabas sa lahat ng email)')),e('div',null,e('label',{className:'block text-xs font-semibold mb-1'},'Shop Email'),e('input',{value:T.shopEmail||'',onChange:ev=>sT({...T,shopEmail:ev.target.value}),placeholder:'hernieramotogarage@gmail.com',className:'w-full px-3 py-2 input-dark border rounded text-sm'})),e('div',null,e('label',{className:'block text-xs font-semibold mb-1'},'Shop Phone'),e('input',{value:T.shopPhone||'',onChange:ev=>sT({...T,shopPhone:ev.target.value}),placeholder:'+639152129741',className:'w-full px-3 py-2 input-dark border rounded text-sm'})),e('div',{className:'md:col-span-2'},e('label',{className:'block text-xs font-semibold mb-1'},'Social Media (optional)'),e('input',{value:T.shopSocial||'',onChange:ev=>sT({...T,shopSocial:ev.target.value}),placeholder:'fb.com/hernieramotogarage',className:'w-full px-3 py-2 input-dark border rounded text-sm'}),e('p',{className:'text-[10px] text-slate-500 mt-1'},'Facebook page o ibang social link. Lalabas sa footer ng emails.'))),e('p',{className:'text-xs text-slate-500 mb-3'},'Pwedeng gamitin sa subject o body: ',e('code',null,'{{shopName}} {{customerName}} {{date}} {{time}} {{motorcycle}} {{appointmentNumber}} {{bookingLink}}')),e('p',{className:'text-[10px] text-emerald-500 font-semibold mb-3'},'Booking link is automatically added to every customer email: ',e('code',null,IMMS_BOOKING_LINK)),e('div',{className:'flex gap-1 mb-3 flex-wrap'},tabs.map(([k,lab])=>e('button',{key:k,type:'button',onClick:()=>setTab(k),className:'px-3 py-1.5 text-xs font-semibold rounded-lg '+(tab===k?'bg-orange-500 text-white':'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200')},lab))),e('label',{className:'block text-xs font-semibold mb-1'},'Subject'),e('input',{value:cur.subject||'',onChange:ev=>setField(tab,'subject',ev.target.value),className:'w-full px-3 py-2 input-dark border rounded text-sm mb-3'}),e('label',{className:'block text-xs font-semibold mb-1'},'Message Body'),e('textarea',{value:cur.body||'',onChange:ev=>setField(tab,'body',ev.target.value),rows:10,className:'w-full px-3 py-2 input-dark border rounded text-sm mb-3'}),e('div',{className:'flex justify-end gap-2'},e('button',{type:'button',onClick:save,disabled:busy,
 className:'px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-bold text-sm disabled:opacity-50'},busy?'Saving...':'Save Templates')))}const WEB_APP_URL="https://script.google.com/macros/s/AKfycbxCyDQR_0z6rC6HGfx9PUftb3j8SHyQTI0ZKL2icsVH5i04ofcL8YUsAxunJjmC8m4zBg/exec";window.IMMS_GAS_FAILOVER_URL=WEB_APP_URL;const IMMS_BOOKING_LINK="https://appbooking.pages.dev/",IMMS_BOOKING_LINE="Book your next appointment here: https://appbooking.pages.dev/";function IMMS__emailPayloadWithBooking(action,data){const d=Object.assign({},data||{}),a=String(action||"").toLowerCase(),isEmail=a.startsWith("send")||a.includes("email");if(!isEmail)return d;d.bookingLink=IMMS_BOOKING_LINK;d.bookingUrl=IMMS_BOOKING_LINK;d.clientPortalLink=IMMS_BOOKING_LINK;d.bookingFooter=IMMS_BOOKING_LINE;d.footerNote=d.footerNote?String(d.footerNote)+"\n\n"+IMMS_BOOKING_LINE:IMMS_BOOKING_LINE;["detail","note","message","body","remarks"].forEach(k=>{if(d[k]&&typeof d[k]==="string"&&!d[k].includes(IMMS_BOOKING_LINK))d[k]=d[k]+"\n\n"+IMMS_BOOKING_LINE});if(!d.detail)d.detail=IMMS_BOOKING_LINE;return d}async function IMMS_API(action,data){if(!WEB_APP_URL||WEB_APP_URL.indexOf("PASTE")>-1)return{success:!1,message:"WEB_APP_URL is not set. Paste your Apps Script /exec URL in index.html."};try{const r=await fetch(WEB_APP_URL,{method:"POST",body:JSON.stringify(Object.assign({action:action},IMMS__emailPayloadWithBooking(action,data)))});return await r.json()}catch(err){return{success:!1,message:String(err)}}}function DataResetButton({db:RB,notify:RN}){const e=React.createElement,[op,sop]=useState(!1),[ct,sct]=useState(""),[bz,sbz]=useState(!1),COLS=["sales","service_orders","customers","products","services_list","bundles","brands","motorcycle_models","inventory_logs","appointments","booking_slots","booking_templates","service_warranty","expenses","customer_credits","credit_transactions","pre_orders","rma_returns","attendance_logs","payroll_logs","audit_logs","quotations","cashier_sessions","payment_logs","backjobs","bookings"],cl=()=>{sop(!1),sct(""),sbz(!1)},dw=async()=>{if(ct!=="DELETE")return RN("Type DELETE to confirm.","error");sbz(!0);try{let tot=0;for(const col of COLS){let sn=await RB.collection(col).get();while(!sn.empty){const ba=RB.batch(),ch=sn.docs.slice(0,400);ch.forEach(x=>ba.delete(x.ref)),await ba.commit(),tot+=ch.length;if(sn.docs.length<=400)break;sn=await RB.collection(col).get()}}sbz(!1),RN("All Firebase data deleted ("+tot+" records). Reloading..."),setTimeout(()=>location.reload(),1500)}catch(err){sbz(!1),RN("Delete error: "+err,"error")}};return e("div",{className:"crm-card rounded-xl p-5 mb-4 border border-rose-300 dark:border-rose-900/50 bg-rose-50/40 dark:bg-rose-950/10"},e("h3",{className:"font-bold text-rose-600 dark:text-rose-400 mb-1 flex items-center gap-2"},e("i",{className:"fas fa-triangle-exclamation"}),"Danger Zone \u2014 Delete All Data"),e("p",{className:"text-xs text-slate-500 mb-3"},"Permanently deletes ALL Firebase data (sales, customers, inventory, appointments, etc.). Users and settings are kept. Hindi na maibabalik!"),e("button",{type:"button",onClick:()=>sop(!0),className:"px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm"},e("i",{className:"fas fa-trash-can mr-2"}),"Delete All Data"),op?e("div",{className:"fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4",onClick:cl},e("div",{className:"bg-white dark:bg-[#0b101e] border border-rose-300 dark:border-rose-900/50 rounded-2xl w-full max-w-md shadow-2xl",onClick:x=>x.stopPropagation()},e("div",{className:"p-5"},e("h3",{className:"font-black text-lg text-rose-600 dark:text-rose-400 flex items-center gap-2 mb-2"},e("i",{className:"fas fa-triangle-exclamation"}),"Delete All Data?"),e("p",{className:"text-sm text-slate-600 dark:text-slate-300 mb-3"},"Buburahin nito LAHAT ng Firebase data. Hindi na maibabalik. Type ",e("b",null,"DELETE")," para magpatuloy."),e("input",{value:ct,onChange:x=>sct(x.target.value),placeholder:"Type DELETE",className:"w-full px-3 py-2.5 mb-3 rounded-lg border border-slate-300 dark:border-[#2d3748] bg-white dark:bg-[#0b101e] text-slate-800 dark:text-white outline-none focus:border-rose-500"}),e("button",{type:"button",disabled:bz,onClick:dw,className:"w-full px-4 py-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm disabled:opacity-50"},bz?"Deleting...":"Permanently Delete All Data")),e("div",{className:"px-5 pb-4"},e("button",{type:"button",onClick:cl,className:"text-xs text-slate-400 hover:underline"},"Cancel")))):null)}function ApptBell(props){
