@@ -2790,22 +2790,70 @@
 
   function gasCall(functionName, payload) {
     return new Promise((resolve, reject) => {
+      const finish = result => {
+        if (result && result.ok === false) reject(new Error(result.error || result.message || "Apps Script request failed."));
+        else resolve(result || {});
+      };
+
+      // Fastest path when the POS is opened from the Apps Script /exec page.
       if (window.google && google.script && google.script.run) {
         try {
           const runner = google.script.run
-            .withSuccessHandler(result => {
-              if (result && result.ok === false) reject(new Error(result.error || result.message || "Apps Script request failed."));
-              else resolve(result || {});
-            })
+            .withSuccessHandler(finish)
             .withFailureHandler(error => reject(new Error(String(error && error.message || error))));
           if (functionName === "getDriveAssetForBackup") runner.getDriveAssetForBackup(payload || {});
           else if (functionName === "uploadDriveMigrationAsset") runner.uploadDriveMigrationAsset(payload || {});
           else if (functionName === "restoreFirestoreMigrationChunk") runner.restoreFirestoreMigrationChunk(payload || {});
           else reject(new Error("Unsupported Apps Script migration function: " + functionName));
           return;
-        } catch (error) { reject(error); return; }
+        } catch (error) {
+          // Continue to the automatic HTTP fallback below.
+        }
       }
-      reject(new Error("Google Apps Script bridge is unavailable. Open the deployed Apps Script /exec URL."));
+
+      // Automatic fallback for cached pages, preview URLs, Cloudflare/static copies,
+      // and browsers where google.script.run is not injected. No setup button needed.
+      const actionMap = {
+        getDriveAssetForBackup: "migration_asset_read",
+        uploadDriveMigrationAsset: "migration_asset_upload",
+        restoreFirestoreMigrationChunk: "migration_firestore_restore_chunk"
+      };
+      const action = actionMap[functionName];
+      if (!action) {
+        reject(new Error("Unsupported Apps Script migration function: " + functionName));
+        return;
+      }
+
+      const endpoint = String(
+        window.IMMS_GAS_FAILOVER_URL ||
+        (typeof WEB_APP_URL !== "undefined" ? WEB_APP_URL : "") ||
+        ""
+      ).trim();
+      if (!endpoint || endpoint.indexOf("PASTE") >= 0) {
+        reject(new Error("Apps Script migration service URL is not configured."));
+        return;
+      }
+
+      fetch(endpoint, {
+        method: "POST",
+        body: JSON.stringify(Object.assign({ action: action }, payload || {})),
+        redirect: "follow",
+        cache: "no-store"
+      })
+        .then(response => {
+          if (!response.ok) throw new Error("Apps Script returned HTTP " + response.status + ".");
+          return response.text();
+        })
+        .then(text => {
+          let result;
+          try { result = JSON.parse(text || "{}"); }
+          catch (_) { throw new Error("Apps Script returned an invalid response. Redeploy Code.gs as a new Web App version."); }
+          finish(result);
+        })
+        .catch(error => reject(new Error(
+          "Apps Script migration service could not be reached. Redeploy the latest Code.gs and Index.html, then reopen the newest /exec URL. " +
+          String(error && error.message || error)
+        )));
     });
   }
 
