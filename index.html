@@ -1,4 +1,4 @@
-<!-- IMMS previous Firestore + complete ZIP migration + Google Drive photos | 2026-07-27 -->
+<!-- IMMS two-file deployment: GitHub/Cloudflare index.html + Apps Script Code.gs backend | 2026-07-27 -->
 <!DOCTYPE html>
 <!-- IMMS POS receipt integrity + pending-write visibility fix | 2026-07-27 -->
 <!-- IMMS Firestore quota-safe cashier aggregates + no polling | 2026-07-27 -->
@@ -2790,33 +2790,10 @@
     } catch (_) { return ""; }
   }
 
+  let IMMS_GAS_BRIDGE_SEQUENCE = 0;
+
   function gasCall(functionName, payload) {
     return new Promise((resolve, reject) => {
-      const finish = result => {
-        if (result && (result.ok === false || result.success === false)) {
-          reject(new Error(result.error || result.message || "Apps Script request failed."));
-        } else resolve(result || {});
-      };
-
-      // Fastest path when the POS is opened from the Apps Script /exec page.
-      if (window.google && google.script && google.script.run) {
-        try {
-          const runner = google.script.run
-            .withSuccessHandler(finish)
-            .withFailureHandler(error => reject(new Error(String(error && error.message || error))));
-          if (functionName === "getMigrationServiceStatus") runner.getMigrationServiceStatus();
-          else if (functionName === "getDriveAssetForBackup") runner.getDriveAssetForBackup(payload || {});
-          else if (functionName === "uploadDriveMigrationAsset") runner.uploadDriveMigrationAsset(payload || {});
-          else if (functionName === "restoreFirestoreMigrationChunk") runner.restoreFirestoreMigrationChunk(payload || {});
-          else reject(new Error("Unsupported Apps Script migration function: " + functionName));
-          return;
-        } catch (error) {
-          // Continue to the automatic HTTP fallback below.
-        }
-      }
-
-      // Automatic fallback for cached pages, preview URLs, Cloudflare/static copies,
-      // and browsers where google.script.run is not injected. No setup button needed.
       const actionMap = {
         getMigrationServiceStatus: "migration_health",
         getDriveAssetForBackup: "migration_asset_read",
@@ -2829,39 +2806,98 @@
         return;
       }
 
-      const endpointMeta = document.querySelector('meta[name="imms-gas-endpoint"]');
-      const renderedEndpoint = endpointMeta ? String(endpointMeta.getAttribute("content") || "").trim() : "";
       const endpoint = String(
-        (renderedEndpoint && renderedEndpoint.indexOf("<?") < 0 ? renderedEndpoint : "") ||
         window.IMMS_GAS_FAILOVER_URL ||
         (typeof WEB_APP_URL !== "undefined" ? WEB_APP_URL : "") ||
         ""
       ).trim();
-      if (!endpoint || endpoint.indexOf("PASTE") >= 0 || endpoint.indexOf("<?") >= 0) {
-        reject(new Error("Apps Script migration service URL is not configured."));
+      if (!endpoint || endpoint.indexOf("PASTE") >= 0 || !/\/exec(?:$|[?#])/i.test(endpoint)) {
+        reject(new Error("Apps Script /exec URL is not configured in index.html."));
         return;
       }
 
-      fetch(endpoint, {
-        method: "POST",
-        body: JSON.stringify(Object.assign({ action: action }, payload || {})),
-        redirect: "follow",
-        cache: "no-store"
-      })
-        .then(response => {
-          if (!response.ok) throw new Error("Apps Script returned HTTP " + response.status + ".");
-          return response.text();
-        })
-        .then(text => {
-          let result;
-          try { result = JSON.parse(text || "{}"); }
-          catch (_) { throw new Error("Apps Script returned an invalid response. Redeploy Code.gs as a new Web App version."); }
-          finish(result);
-        })
-        .catch(error => reject(new Error(
-          "Apps Script migration service could not be reached. Redeploy the latest Code.gs and Index.html, then reopen the newest /exec URL. " +
-          String(error && error.message || error)
-        )));
+      const requestId = "imms-" + Date.now() + "-" + (++IMMS_GAS_BRIDGE_SEQUENCE) + "-" + Math.random().toString(36).slice(2);
+      const frameName = "immsGasBridgeFrame";
+      let frame = document.getElementById(frameName);
+      if (!frame) {
+        frame = document.createElement("iframe");
+        frame.id = frameName;
+        frame.name = frameName;
+        frame.setAttribute("aria-hidden", "true");
+        frame.style.display = "none";
+        document.body.appendChild(frame);
+      }
+
+      let settled = false;
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error("Apps Script backend did not respond. Check the deployed /exec URL and run authorizeIMMSMigration once in Apps Script."));
+      }, 180000);
+
+      function cleanup() {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        window.removeEventListener("message", onMessage);
+        if (form && form.parentNode) form.parentNode.removeChild(form);
+      }
+
+      function finish(result) {
+        cleanup();
+        if (result && (result.ok === false || result.success === false)) {
+          reject(new Error(result.error || result.message || "Apps Script request failed."));
+        } else {
+          resolve(result || {});
+        }
+      }
+
+      function onMessage(event) {
+        const data = event && event.data;
+        if (!data || data.channel !== "IMMS_GAS_BRIDGE" || data.requestId !== requestId) return;
+        finish(data.result || {});
+      }
+
+      window.addEventListener("message", onMessage);
+
+      const form = document.createElement("form");
+      form.method = "POST";
+      form.action = endpoint;
+      form.target = frameName;
+      form.enctype = "application/x-www-form-urlencoded";
+      form.acceptCharset = "UTF-8";
+      form.style.display = "none";
+
+      const body = Object.assign({}, payload || {}, {
+        action: action,
+        requestId: requestId,
+        transport: "iframe",
+        callbackOrigin: window.location.origin || "*"
+      });
+
+      const payloadField = document.createElement("textarea");
+      payloadField.name = "payload";
+      payloadField.value = JSON.stringify(body);
+      form.appendChild(payloadField);
+
+      const transportField = document.createElement("input");
+      transportField.type = "hidden";
+      transportField.name = "transport";
+      transportField.value = "iframe";
+      form.appendChild(transportField);
+
+      const originField = document.createElement("input");
+      originField.type = "hidden";
+      originField.name = "callbackOrigin";
+      originField.value = window.location.origin || "*";
+      form.appendChild(originField);
+
+      document.body.appendChild(form);
+      try {
+        form.submit();
+      } catch (error) {
+        cleanup();
+        reject(new Error("Could not contact Apps Script backend: " + String(error && error.message || error)));
+      }
     });
   }
 
