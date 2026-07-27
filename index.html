@@ -2733,7 +2733,7 @@
   ];
   const EXPORT_PAGE_SIZE = 200;
   const SERVER_IMPORT_CHUNK = 100;
-  const MIGRATION_SERVICE_VERSION = "2026-07-27-drive-restore-v3";
+  const MIGRATION_SERVICE_VERSION = "2026-07-27-drive-restore-v4-client-firestore";
   const ASSET_FIELD_RE = /(image|photo|picture|receipt|proof|attachment|thumbnail|avatar|logo|qr|signature|document|file)/i;
   const ASSET_URL_RE = /\.(png|jpe?g|webp|gif|bmp|svg|pdf)(?:[?#].*)?$/i;
 
@@ -2814,7 +2814,13 @@
 
       function cleanup() {
         clearTimeout(timer);
-        try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+        // Keep a temporary no-op callback. Apps Script JSONP responses can arrive
+        // after a timeout; deleting the callback immediately causes a noisy
+        // ReferenceError even though the request has already been handled.
+        try { window[callbackName] = function () {}; } catch (_) {}
+        setTimeout(() => {
+          try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+        }, 5 * 60 * 1000);
         try { script.remove(); } catch (_) {}
       }
 
@@ -3158,17 +3164,88 @@
     return map;
   }
 
-  function replaceAssetMarkers(value, assetMap) {
+  function base64ToUint8Array(base64) {
+    const binary = atob(String(base64 || "").replace(/\s/g, ""));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  function restoreFirestoreValue(value, assetMap, dbRef, insideArray) {
     if (value === null || value === undefined || typeof value !== "object") return value;
-    if (Array.isArray(value)) return value.map(item => replaceAssetMarkers(item, assetMap));
-    if (value.__immsType === "asset") {
+    if (Array.isArray(value)) {
+      return value.map(item => {
+        const restored = restoreFirestoreValue(item, assetMap, dbRef, true);
+        return restored === undefined ? null : restored;
+      });
+    }
+
+    const marker = String(value.__immsType || "");
+    if (marker === "asset") {
       const url = assetMap.get(value.path);
       if (!url) throw new Error("Google Drive URL is missing for " + value.path);
       return url;
     }
+    if (marker === "undefined") return insideArray ? null : undefined;
+    if (marker === "date") return new Date(String(value.value || ""));
+    if (marker === "timestamp") {
+      return new firebase.firestore.Timestamp(Number(value.seconds || 0), Number(value.nanoseconds || 0));
+    }
+    if (marker === "geopoint") {
+      return new firebase.firestore.GeoPoint(Number(value.latitude || 0), Number(value.longitude || 0));
+    }
+    if (marker === "reference") return dbRef.doc(String(value.path || ""));
+    if (marker === "firestore-bytes") {
+      return firebase.firestore.Blob.fromUint8Array(base64ToUint8Array(value.base64 || ""));
+    }
+    if (marker === "number") {
+      if (value.value === "NaN") return NaN;
+      if (value.value === "Infinity") return Infinity;
+      if (value.value === "-Infinity") return -Infinity;
+    }
+
     const output = {};
-    for (const key of Object.keys(value)) output[key] = replaceAssetMarkers(value[key], assetMap);
+    for (const key of Object.keys(value)) {
+      const restored = restoreFirestoreValue(value[key], assetMap, dbRef, false);
+      if (restored !== undefined) output[key] = restored;
+    }
     return output;
+  }
+
+  async function verifyClientFirestoreRestoreAccess(dbRef, projectId) {
+    const probeId = "probe_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+    const probeRef = dbRef.collection("_imms_migration_probe").doc(probeId);
+    try {
+      await probeRef.set({
+        projectId: String(projectId || ""),
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        purpose: "IMMS migration permission check"
+      });
+      await probeRef.delete();
+      return true;
+    } catch (error) {
+      try { await probeRef.delete(); } catch (_) {}
+      const code = String(error && error.code || "").toLowerCase();
+      if (code.includes("permission-denied") || /missing or insufficient permissions/i.test(String(error && error.message || error))) {
+        throw new Error("Firestore restore permission is blocked by the motor-dubai Firestore Rules. Publish the temporary migration rule first, then upload the same ZIP again. No photos were uploaded and no records were changed.");
+      }
+      throw error;
+    }
+  }
+
+  async function commitClientFirestoreChunk(dbRef, documents, assetMap) {
+    if (!documents.length) return;
+    const batch = dbRef.batch();
+    for (const item of documents) {
+      const collection = String(item && item.collection || "");
+      const id = String(item && item.id || "");
+      if (!collection || !id || /\//.test(collection) || /\//.test(id)) {
+        throw new Error("Invalid Firestore collection or document ID.");
+      }
+      const data = restoreFirestoreValue(item.data || {}, assetMap, dbRef, false);
+      batch.set(dbRef.collection(collection).doc(id), data);
+    }
+    await batch.commit();
   }
 
   async function restoreBackup(file, options, onProgress) {
@@ -3181,7 +3258,10 @@
     const projectId = String(options && options.projectId || firebase.app().options.projectId || "").trim();
     if (!projectId) throw new Error("Destination Firebase project ID is missing.");
 
-    onProgress({ phase: "drive", percent: 1, message: "Uploading included photos to Google Drive first…" });
+    onProgress({ phase: "preflight", percent: 1, message: "Checking Firestore restore permission before uploading photos…" });
+    await verifyClientFirestoreRestoreAccess(db, projectId);
+
+    onProgress({ phase: "drive", percent: 3, message: "Uploading included photos to Google Drive…" });
     const assetMap = await uploadAssetsToDrive(zip, manifest, onProgress);
 
     const collections = Array.isArray(manifest.collections) ? manifest.collections.slice() : COLLECTIONS.slice();
@@ -3192,22 +3272,24 @@
 
     const commit = async () => {
       if (!chunk.length) return;
+      const pendingChunk = chunk;
+      chunk = [];
       try {
-        const result = await gasCall("restoreFirestoreMigrationChunk", {
-          projectId,
-          backupId: manifest.backupId || "backup",
-          documents: chunk
-        });
-        if (!result || result.ok === false) throw new Error(result && (result.error || result.message) || "Firestore restore failed.");
+        // Firestore records are restored directly through the Firebase Web SDK.
+        // Apps Script is used only for Google Drive photos and the existing POS APIs.
+        await commitClientFirestoreChunk(db, pendingChunk, assetMap);
       } catch (error) {
         if (isQuotaError(error)) {
           const paused = new Error("Firestore daily write quota was reached after " + restored + " of " + total + " records. Keep the same ZIP and upload it again after the quota resets. Existing document IDs are overwritten safely, so records will not duplicate.");
           paused.code = "imms/quota-paused";
           throw paused;
         }
+        const code = String(error && error.code || "").toLowerCase();
+        if (code.includes("permission-denied") || /missing or insufficient permissions/i.test(String(error && error.message || error))) {
+          throw new Error("Firestore Rules blocked the restore. Publish the temporary motor-dubai migration rule, refresh the POS, and upload the same ZIP again. Already uploaded Drive photos are safely reusable.");
+        }
         throw error;
       }
-      chunk = [];
     };
 
     for (const name of collections) {
@@ -3219,7 +3301,7 @@
         if (!row || !row.id) continue;
         chunk.push({ collection: name, id: String(row.id), data: replaceAssetMarkers(row.data, assetMap) });
         restored++;
-        onProgress({ phase: "restore", collection: name, current: restored, total, percent: 35 + (total ? Math.round(restored / total * 65) : 65), message: "Restoring Firestore records · " + restored + "/" + total });
+        onProgress({ phase: "restore", collection: name, current: restored, total, percent: 38 + (total ? Math.round(restored / total * 62) : 62), message: "Restoring Firestore records directly · " + restored + "/" + total });
         if (chunk.length >= SERVER_IMPORT_CHUNK) await commit();
       }
       await commit();
@@ -3286,7 +3368,7 @@
       e("div", { className: "flex items-start justify-between gap-3 flex-wrap" },
         e("div", null,
           e("h3", { className: "font-bold text-slate-800 dark:text-white flex items-center gap-2" }, e("i", { className: "fas fa-database text-cyan-500" }), "Full Database Migration"),
-          e("p", { className: "text-xs text-slate-500 mt-1 max-w-2xl" }, "One ZIP contains all known Firestore records, original document IDs, transaction references, dates, cashier sessions/history and included photos. During restore, photos go to Google Drive first and Firestore stores their Drive URLs.")),
+          e("p", { className: "text-xs text-slate-500 mt-1 max-w-2xl" }, "One ZIP contains all known Firestore records, original document IDs, transaction references, dates, cashier sessions/history and included photos. The system checks Firestore permission first, uploads photos to Google Drive, then restores the records directly to motor-dubai.")),
         e("span", { className: "text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded bg-emerald-500/15 text-emerald-500" }, "Firestore + Drive")
       ),
       e("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-3 mt-4" },
@@ -3298,7 +3380,7 @@
         e("div", { className: "h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden" }, e("div", { className: "h-full bg-cyan-500 transition-all", style: { width: Math.max(2, Math.min(100, progress)) + "%" } })),
         e("p", { className: "text-[11px] text-slate-500 mt-2 break-words" }, status)
       ),
-      e("p", { className: "text-[10px] text-amber-500 mt-3" }, "Restore writes through Apps Script using the Google account that owns this deployment. The account must have access to the destination Firebase project. Firestore's daily write quota still applies; re-uploading the same ZIP safely resumes because original document IDs are preserved.")
+      e("p", { className: "text-[10px] text-amber-500 mt-3" }, "Photos use Google Apps Script + Drive. Firestore records restore directly through the Firebase Web SDK and follow motor-dubai Firestore Rules. Permission is checked before any photo upload. Re-uploading the same ZIP safely resumes because original document IDs are preserved.")
     );
   };
 })();
@@ -3493,7 +3575,7 @@
   <script>const{useState:useState,useEffect:useEffect,useMemo:useMemo,useRef:useRef}=React,firebaseConfig={apiKey:"AIzaSyCfm5NXGFtWZ_HzizNjjGYpyyccTiVTBg0",authDomain:"motor-dubai.firebaseapp.com",projectId:"motor-dubai",storageBucket:"motor-dubai.firebasestorage.app",messagingSenderId:"899299505685",appId:"1:899299505685:web:efcffe97d4dcccbbc2801c"};firebase.apps.length||firebase.initializeApp(firebaseConfig);const db=firebase.firestore();try{window.__IMMS_FIRESTORE_SETTINGS_APPLIED||(db.settings({ignoreUndefinedProperties:!0,merge:!0}),window.__IMMS_FIRESTORE_SETTINGS_APPLIED=!0)}catch(_e){}const safeDate=B=>{if(!B)return"No Date";try{const V=new Date(B);return isNaN(V.getTime())?"No Date":V.toLocaleDateString()+" "+V.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}catch{return"No Date"}};function EmailTemplatesEditor({notify:N}){const e=React.createElement,[T,sT]=useState(null),[busy,sBusy]=useState(!1),[tab,setTab]=useState('confirmation');useEffect(()=>{(async()=>{const R=await IMMS_API('getEmailTemplates',{});if(R&&R.success){sT(R.data)}else{N(R&&R.message||'Failed to load templates.','error')}})()},[]);const setField=(k,f,v)=>sT(p=>({...p,[k]:{...p[k],[f]:v}}));const withBookingLink=tpl=>{const body=String((tpl&&tpl.body)||'');return{...(tpl||{}),body:body.includes('{{bookingLink}}')||body.includes('appbooking.pages.dev')?body:body+'\n\nBook your next appointment here: {{bookingLink}}'}};const save=async()=>{if(!T)return;sBusy(!0);const payload={shopName:T.shopName,logoUrl:T.logoUrl||'',shopEmail:T.shopEmail||'',shopPhone:T.shopPhone||'',shopSocial:T.shopSocial||'',reminderHour:Number(T.reminderHour),bookingLink:IMMS_BOOKING_LINK,confirmation:withBookingLink(T.confirmation),appointmentReminder:withBookingLink(T.appointmentReminder),maintenanceReminder:withBookingLink(T.maintenanceReminder)};const R=await IMMS_API('saveEmailTemplates',payload);sBusy(!1);R&&R.success?(sT({...T,confirmation:payload.confirmation,appointmentReminder:payload.appointmentReminder,maintenanceReminder:payload.maintenanceReminder}),N('Email templates saved with booking link.')):N(R&&R.message||'Save failed.','error')};if(!T)return e('div',{className:'crm-card rounded-xl p-5 mb-4 text-sm text-slate-500'
 },'Loading email templates...');const tabs=[['confirmation','Booking Confirmation'],['appointmentReminder','Appointment Reminder (1 day before)'],['maintenanceReminder','Maintenance Reminder (1 day before)']];const cur=T[tab]||{subject:'',body:''};return e('div',{className:'crm-card rounded-xl p-5 mb-4'},e('div',{className:'flex items-center justify-between mb-3 flex-wrap gap-2'},e('h3',{className:'font-bold text-slate-800 dark:text-white flex items-center gap-2'},e('i',{className:'fas fa-envelope-open-text text-orange-500'}),'Email Templates')),e('div',{className:'grid grid-cols-1 md:grid-cols-2 gap-3 mb-4'},e('div',null,e('label',{className:'block text-xs font-semibold mb-1'},'Motorshop Name'),e('input',{value:T.shopName||'',onChange:ev=>sT({...T,shopName:ev.target.value}),placeholder:'e.g. Herniera Moto Garage',className:'w-full px-3 py-2 input-dark border rounded text-sm'}),e('p',{className:'text-[10px] text-slate-500 mt-1'},'Lalabas ito sa subject at body bilang ',e('code',null,'{{shopName}}'))),e('div',null,e('label',{className:'block text-xs font-semibold mb-1'},'Daily reminder hour (0-23, Asia/Manila)'),e('input',{type:'number',min:0,max:23,value:T.reminderHour||8,onChange:ev=>sT({...T,reminderHour:ev.target.value}),className:'w-full px-3 py-2 input-dark border rounded text-sm'}),e('p',{className:'text-[10px] text-slate-500 mt-1'},'Oras kada-araw kung kailan magpapadala ng 1-day reminders.')),e('div',{className:'md:col-span-2'},e('label',{
 className:'block text-xs font-semibold mb-1'},'Email Logo URL (optional)'),e('input',{value:T.logoUrl||'',onChange:ev=>sT({...T,logoUrl:ev.target.value}),placeholder:'https://yoursite.pages.dev/logo.png',className:'w-full px-3 py-2 input-dark border rounded text-sm'}),e('p',{className:'text-[10px] text-slate-500 mt-1'},'Public image URL ng logo na lalabas sa header ng lahat ng email. Iwanang blank para sa text emblem fallback.')),e('div',{className:'md:col-span-2 pt-2 mt-1 border-t border-slate-200 dark:border-[#2d3748]'},e('p',{className:'text-xs font-bold text-slate-600 dark:text-slate-300 mb-2'},e('i',{className:'fas fa-address-card text-orange-500 mr-1'}),'Shop Contact Info (lalabas sa lahat ng email)')),e('div',null,e('label',{className:'block text-xs font-semibold mb-1'},'Shop Email'),e('input',{value:T.shopEmail||'',onChange:ev=>sT({...T,shopEmail:ev.target.value}),placeholder:'hernieramotogarage@gmail.com',className:'w-full px-3 py-2 input-dark border rounded text-sm'})),e('div',null,e('label',{className:'block text-xs font-semibold mb-1'},'Shop Phone'),e('input',{value:T.shopPhone||'',onChange:ev=>sT({...T,shopPhone:ev.target.value}),placeholder:'+639152129741',className:'w-full px-3 py-2 input-dark border rounded text-sm'})),e('div',{className:'md:col-span-2'},e('label',{className:'block text-xs font-semibold mb-1'},'Social Media (optional)'),e('input',{value:T.shopSocial||'',onChange:ev=>sT({...T,shopSocial:ev.target.value}),placeholder:'fb.com/hernieramotogarage',className:'w-full px-3 py-2 input-dark border rounded text-sm'}),e('p',{className:'text-[10px] text-slate-500 mt-1'},'Facebook page o ibang social link. Lalabas sa footer ng emails.'))),e('p',{className:'text-xs text-slate-500 mb-3'},'Pwedeng gamitin sa subject o body: ',e('code',null,'{{shopName}} {{customerName}} {{date}} {{time}} {{motorcycle}} {{appointmentNumber}} {{bookingLink}}')),e('p',{className:'text-[10px] text-emerald-500 font-semibold mb-3'},'Booking link is automatically added to every customer email: ',e('code',null,IMMS_BOOKING_LINK)),e('div',{className:'flex gap-1 mb-3 flex-wrap'},tabs.map(([k,lab])=>e('button',{key:k,type:'button',onClick:()=>setTab(k),className:'px-3 py-1.5 text-xs font-semibold rounded-lg '+(tab===k?'bg-orange-500 text-white':'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200')},lab))),e('label',{className:'block text-xs font-semibold mb-1'},'Subject'),e('input',{value:cur.subject||'',onChange:ev=>setField(tab,'subject',ev.target.value),className:'w-full px-3 py-2 input-dark border rounded text-sm mb-3'}),e('label',{className:'block text-xs font-semibold mb-1'},'Message Body'),e('textarea',{value:cur.body||'',onChange:ev=>setField(tab,'body',ev.target.value),rows:10,className:'w-full px-3 py-2 input-dark border rounded text-sm mb-3'}),e('div',{className:'flex justify-end gap-2'},e('button',{type:'button',onClick:save,disabled:busy,
-className:'px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-bold text-sm disabled:opacity-50'},busy?'Saving...':'Save Templates')))}const WEB_APP_URL="https://script.google.com/macros/s/AKfycbzWAXR2NcLU7A1y9rjuWq07KGTH3XTcQyuPgoMhvC647RKXw0eama3ZLB_qaLBQAP3I/exec";window.IMMS_GAS_FAILOVER_URL=WEB_APP_URL;const IMMS_BOOKING_LINK="https://appbooking.pages.dev/",IMMS_BOOKING_LINE="Book your next appointment here: https://appbooking.pages.dev/";function IMMS__emailPayloadWithBooking(action,data){const d=Object.assign({},data||{}),a=String(action||"").toLowerCase(),isEmail=a.startsWith("send")||a.includes("email");if(!isEmail)return d;d.bookingLink=IMMS_BOOKING_LINK;d.bookingUrl=IMMS_BOOKING_LINK;d.clientPortalLink=IMMS_BOOKING_LINK;d.bookingFooter=IMMS_BOOKING_LINE;d.footerNote=d.footerNote?String(d.footerNote)+"\n\n"+IMMS_BOOKING_LINE:IMMS_BOOKING_LINE;["detail","note","message","body","remarks"].forEach(k=>{if(d[k]&&typeof d[k]==="string"&&!d[k].includes(IMMS_BOOKING_LINK))d[k]=d[k]+"\n\n"+IMMS_BOOKING_LINE});if(!d.detail)d.detail=IMMS_BOOKING_LINE;return d}async function IMMS_API(action,data){if(!WEB_APP_URL||WEB_APP_URL.indexOf("PASTE")>-1)return{success:!1,message:"WEB_APP_URL is not set. Paste your Apps Script /exec URL in index.html."};try{const r=await fetch(WEB_APP_URL,{method:"POST",body:JSON.stringify(Object.assign({action:action},IMMS__emailPayloadWithBooking(action,data)))});return await r.json()}catch(err){return{success:!1,message:String(err)}}}function DataResetButton({db:RB,notify:RN}){const e=React.createElement,[op,sop]=useState(!1),[ct,sct]=useState(""),[bz,sbz]=useState(!1),COLS=["sales","service_orders","customers","products","services_list","bundles","brands","motorcycle_models","inventory_logs","appointments","booking_slots","booking_templates","service_warranty","expenses","customer_credits","credit_transactions","pre_orders","rma_returns","attendance_logs","payroll_logs","audit_logs","quotations","cashier_sessions","payment_logs","backjobs","bookings"],cl=()=>{sop(!1),sct(""),sbz(!1)},dw=async()=>{if(ct!=="DELETE")return RN("Type DELETE to confirm.","error");sbz(!0);try{let tot=0;for(const col of COLS){let sn=await RB.collection(col).get();while(!sn.empty){const ba=RB.batch(),ch=sn.docs.slice(0,400);ch.forEach(x=>ba.delete(x.ref)),await ba.commit(),tot+=ch.length;if(sn.docs.length<=400)break;sn=await RB.collection(col).get()}}sbz(!1),RN("All Firebase data deleted ("+tot+" records). Reloading..."),setTimeout(()=>location.reload(),1500)}catch(err){sbz(!1),RN("Delete error: "+err,"error")}};return e("div",{className:"crm-card rounded-xl p-5 mb-4 border border-rose-300 dark:border-rose-900/50 bg-rose-50/40 dark:bg-rose-950/10"},e("h3",{className:"font-bold text-rose-600 dark:text-rose-400 mb-1 flex items-center gap-2"},e("i",{className:"fas fa-triangle-exclamation"}),"Danger Zone \u2014 Delete All Data"),e("p",{className:"text-xs text-slate-500 mb-3"},"Permanently deletes ALL Firebase data (sales, customers, inventory, appointments, etc.). Users and settings are kept. Hindi na maibabalik!"),e("button",{type:"button",onClick:()=>sop(!0),className:"px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm"},e("i",{className:"fas fa-trash-can mr-2"}),"Delete All Data"),op?e("div",{className:"fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4",onClick:cl},e("div",{className:"bg-white dark:bg-[#0b101e] border border-rose-300 dark:border-rose-900/50 rounded-2xl w-full max-w-md shadow-2xl",onClick:x=>x.stopPropagation()},e("div",{className:"p-5"},e("h3",{className:"font-black text-lg text-rose-600 dark:text-rose-400 flex items-center gap-2 mb-2"},e("i",{className:"fas fa-triangle-exclamation"}),"Delete All Data?"),e("p",{className:"text-sm text-slate-600 dark:text-slate-300 mb-3"},"Buburahin nito LAHAT ng Firebase data. Hindi na maibabalik. Type ",e("b",null,"DELETE")," para magpatuloy."),e("input",{value:ct,onChange:x=>sct(x.target.value),placeholder:"Type DELETE",className:"w-full px-3 py-2.5 mb-3 rounded-lg border border-slate-300 dark:border-[#2d3748] bg-white dark:bg-[#0b101e] text-slate-800 dark:text-white outline-none focus:border-rose-500"}),e("button",{type:"button",disabled:bz,onClick:dw,className:"w-full px-4 py-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm disabled:opacity-50"},bz?"Deleting...":"Permanently Delete All Data")),e("div",{className:"px-5 pb-4"},e("button",{type:"button",onClick:cl,className:"text-xs text-slate-400 hover:underline"},"Cancel")))):null)}function ApptBell(props){
+className:'px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-bold text-sm disabled:opacity-50'},busy?'Saving...':'Save Templates')))}const WEB_APP_URL="https://script.google.com/macros/s/AKfycbzWAXR2NcLU7A1y9rjuWq07KGTH3XTcQyuPgoMhvC647RKXw0eama3ZLB_qaLBQAP3I/exec";window.IMMS_GAS_FAILOVER_URL=WEB_APP_URL;const IMMS_BOOKING_LINK="https://appbooking.pages.dev/",IMMS_BOOKING_LINE="Book your next appointment here: https://appbooking.pages.dev/";function IMMS__emailPayloadWithBooking(action,data){const d=Object.assign({},data||{}),a=String(action||"").toLowerCase(),isEmail=a.startsWith("send")||a.includes("email");if(!isEmail)return d;d.bookingLink=IMMS_BOOKING_LINK;d.bookingUrl=IMMS_BOOKING_LINK;d.clientPortalLink=IMMS_BOOKING_LINK;d.bookingFooter=IMMS_BOOKING_LINE;d.footerNote=d.footerNote?String(d.footerNote)+"\n\n"+IMMS_BOOKING_LINE:IMMS_BOOKING_LINE;["detail","note","message","body","remarks"].forEach(k=>{if(d[k]&&typeof d[k]==="string"&&!d[k].includes(IMMS_BOOKING_LINK))d[k]=d[k]+"\n\n"+IMMS_BOOKING_LINE});if(!d.detail)d.detail=IMMS_BOOKING_LINE;return d}async function IMMS_API(action,data){if(!WEB_APP_URL||WEB_APP_URL.indexOf("PASTE")>-1)return{success:!1,message:"WEB_APP_URL is not set. Paste your Apps Script /exec URL in index.html."};try{const r=await fetch(WEB_APP_URL,{method:"POST",body:JSON.stringify(Object.assign({action:action},IMMS__emailPayloadWithBooking(action,data)))}),text=await r.text();let payload;try{payload=JSON.parse(text)}catch(_e){return{success:!1,message:"Apps Script returned an invalid response (HTTP "+r.status+"). Redeploy the latest Code.gs.",details:text.slice(0,300)}}if(!r.ok)return{success:!1,message:payload.message||payload.error||("Apps Script HTTP "+r.status),details:payload};if(payload&&payload.success===void 0&&payload.ok===!1)return{...payload,success:!1,message:payload.message||payload.error||"Apps Script request failed."};return payload}catch(err){return{success:!1,message:String(err&&err.message||err)}}}function DataResetButton({db:RB,notify:RN}){const e=React.createElement,[op,sop]=useState(!1),[ct,sct]=useState(""),[bz,sbz]=useState(!1),COLS=["sales","service_orders","customers","products","services_list","bundles","brands","motorcycle_models","inventory_logs","appointments","booking_slots","booking_templates","service_warranty","expenses","customer_credits","credit_transactions","pre_orders","rma_returns","attendance_logs","payroll_logs","audit_logs","quotations","cashier_sessions","payment_logs","backjobs","bookings"],cl=()=>{sop(!1),sct(""),sbz(!1)},dw=async()=>{if(ct!=="DELETE")return RN("Type DELETE to confirm.","error");sbz(!0);try{let tot=0;for(const col of COLS){let sn=await RB.collection(col).get();while(!sn.empty){const ba=RB.batch(),ch=sn.docs.slice(0,400);ch.forEach(x=>ba.delete(x.ref)),await ba.commit(),tot+=ch.length;if(sn.docs.length<=400)break;sn=await RB.collection(col).get()}}sbz(!1),RN("All Firebase data deleted ("+tot+" records). Reloading..."),setTimeout(()=>location.reload(),1500)}catch(err){sbz(!1),RN("Delete error: "+err,"error")}};return e("div",{className:"crm-card rounded-xl p-5 mb-4 border border-rose-300 dark:border-rose-900/50 bg-rose-50/40 dark:bg-rose-950/10"},e("h3",{className:"font-bold text-rose-600 dark:text-rose-400 mb-1 flex items-center gap-2"},e("i",{className:"fas fa-triangle-exclamation"}),"Danger Zone \u2014 Delete All Data"),e("p",{className:"text-xs text-slate-500 mb-3"},"Permanently deletes ALL Firebase data (sales, customers, inventory, appointments, etc.). Users and settings are kept. Hindi na maibabalik!"),e("button",{type:"button",onClick:()=>sop(!0),className:"px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm"},e("i",{className:"fas fa-trash-can mr-2"}),"Delete All Data"),op?e("div",{className:"fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4",onClick:cl},e("div",{className:"bg-white dark:bg-[#0b101e] border border-rose-300 dark:border-rose-900/50 rounded-2xl w-full max-w-md shadow-2xl",onClick:x=>x.stopPropagation()},e("div",{className:"p-5"},e("h3",{className:"font-black text-lg text-rose-600 dark:text-rose-400 flex items-center gap-2 mb-2"},e("i",{className:"fas fa-triangle-exclamation"}),"Delete All Data?"),e("p",{className:"text-sm text-slate-600 dark:text-slate-300 mb-3"},"Buburahin nito LAHAT ng Firebase data. Hindi na maibabalik. Type ",e("b",null,"DELETE")," para magpatuloy."),e("input",{value:ct,onChange:x=>sct(x.target.value),placeholder:"Type DELETE",className:"w-full px-3 py-2.5 mb-3 rounded-lg border border-slate-300 dark:border-[#2d3748] bg-white dark:bg-[#0b101e] text-slate-800 dark:text-white outline-none focus:border-rose-500"}),e("button",{type:"button",disabled:bz,onClick:dw,className:"w-full px-4 py-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm disabled:opacity-50"},bz?"Deleting...":"Permanently Delete All Data")),e("div",{className:"px-5 pb-4"},e("button",{type:"button",onClick:cl,className:"text-xs text-slate-400 hover:underline"},"Cancel")))):null)}function ApptBell(props){
   var appts=props.appointments||[];
   var products=props.products||[];
   var go=props.setView;
